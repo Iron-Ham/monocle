@@ -10,27 +10,38 @@ enum SymbolCommandRunner {
   /// - Parameters:
   ///   - method: The symbol method to execute.
   ///   - workspace: Optional explicit workspace root path.
-  ///   - file: Absolute Swift source file path.
+  ///   - file: Swift source file path (relative or absolute).
   ///   - line: One-based line number of the symbol location.
   ///   - column: One-based column number of the symbol location.
   /// - Returns: Symbol information returned by SourceKit-LSP.
   static func perform(method: DaemonMethod, workspace: String?, file: String, line: Int,
                       column: Int) async throws -> SymbolInfo {
-    let parameters = DaemonRequestParameters(workspaceRootPath: workspace, filePath: file, line: line, column: column)
+    let resolvedFile = FilePathResolver.absolutePath(for: file)
+    let resolvedWorkspace = workspace.map { FilePathResolver.absolutePath(for: $0) }
+
+    let parameters = DaemonRequestParameters(
+      workspaceRootPath: resolvedWorkspace,
+      filePath: resolvedFile,
+      line: line,
+      column: column,
+    )
 
     if let daemonResult = try await AutomaticDaemonLauncher.send(method: method, parameters: parameters) {
       return daemonResult
     }
 
-    let workspaceDescription = try WorkspaceLocator.locate(explicitWorkspacePath: workspace, filePath: file)
+    let workspaceDescription = try WorkspaceLocator.locate(
+      explicitWorkspacePath: resolvedWorkspace,
+      filePath: resolvedFile,
+    )
     let session = LspSession(workspace: workspaceDescription)
     switch method {
     case .inspect:
-      return try await session.inspectSymbol(file: file, line: line, column: column)
+      return try await session.inspectSymbol(file: resolvedFile, line: line, column: column)
     case .definition:
-      return try await session.definition(file: file, line: line, column: column)
+      return try await session.definition(file: resolvedFile, line: line, column: column)
     case .hover:
-      return try await session.hover(file: file, line: line, column: column)
+      return try await session.hover(file: resolvedFile, line: line, column: column)
     case .shutdown, .ping, .status:
       throw MonocleError.ioError("Unsupported method for CLI command.")
     }
