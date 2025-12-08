@@ -14,7 +14,7 @@ struct ServeCommand: AsyncParsableCommand {
   var socket: String?
   
   @Option(name: .long, help: "Idle session timeout in seconds.")
-  var idleTimeout: Double = 600
+  var idleTimeout: Double = DaemonRuntimeConfiguration.defaultIdleTimeoutSeconds
   
   mutating func run() async throws {
     let socketURL = socket.map { URL(fileURLWithPath: $0) } ?? DaemonSocketConfiguration.defaultSocketURL

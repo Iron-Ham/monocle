@@ -33,6 +33,7 @@ enum HumanReadablePrinter {
   static func printDaemonStatus(_ status: DaemonStatus) {
     print("Daemon socket: \(status.socketPath)")
     print("Idle session timeout: \(status.idleSessionTimeoutSeconds)s")
+    print("Logs: \(status.logFilePath)")
     if status.activeSessions.isEmpty {
       print("Active sessions: none")
       return

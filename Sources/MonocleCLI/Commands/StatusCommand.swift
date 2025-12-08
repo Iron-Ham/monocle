@@ -15,16 +15,18 @@ struct StatusCommand: AsyncParsableCommand {
   
   @Flag(name: .long, help: "Emit JSON output instead of human-readable text.")
   var json: Bool = false
-  
+
   mutating func run() async throws {
     let socketURL = socket.map { URL(fileURLWithPath: $0) } ?? DaemonSocketConfiguration.defaultSocketURL
-    guard FileManager.default.fileExists(atPath: socketURL.path) else {
-      throw MonocleError.ioError("Daemon socket not found at \(socketURL.path). Is the daemon running?")
-    }
-    
     let client = DaemonClient(socketURL: socketURL)
     let parameters = DaemonRequestParameters(workspaceRootPath: nil, filePath: "", line: 1, column: 1)
-    let response = try await client.send(method: .status, parameters: parameters)
+    let response: DaemonResponse
+    do {
+      response = try await client.send(method: .status, parameters: parameters)
+    } catch {
+      print("No daemon is running. Start it with `monocle serve` or run any command (inspect/definition/hover) to auto-start it.")
+      return
+    }
     guard let status = response.status else {
       throw MonocleError.ioError("Daemon returned an unexpected response.")
     }

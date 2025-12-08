@@ -69,6 +69,7 @@ public actor DaemonSessionManager {
       activeSessions: sessionsInfo,
       socketPath: socketPath,
       idleSessionTimeoutSeconds: Int(idleSessionTimeout),
+      logFilePath: DaemonRuntimeConfiguration.logFileURL.path
     )
   }
 

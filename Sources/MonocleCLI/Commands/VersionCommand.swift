@@ -13,7 +13,7 @@ struct VersionCommand: ParsableCommand {
   }
 
   func run() throws {
-    let toolVersion = "0.1.0"
+    let toolVersion = MonocleVersion.current
     let sourceKitVersion = try SourceKitService.detectSourceKitVersion()
     print("monocle \(toolVersion)")
     print("SourceKit-LSP: \(sourceKitVersion)")

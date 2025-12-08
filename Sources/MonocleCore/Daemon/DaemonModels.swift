@@ -97,11 +97,13 @@ public struct DaemonStatus: Codable, Sendable {
   public var activeSessions: [Session]
   public var socketPath: String
   public var idleSessionTimeoutSeconds: Int
+  public var logFilePath: String
 
-  public init(activeSessions: [Session], socketPath: String, idleSessionTimeoutSeconds: Int) {
+  public init(activeSessions: [Session], socketPath: String, idleSessionTimeoutSeconds: Int, logFilePath: String) {
     self.activeSessions = activeSessions
     self.socketPath = socketPath
     self.idleSessionTimeoutSeconds = idleSessionTimeoutSeconds
+    self.logFilePath = logFilePath
   }
 }
 
@@ -115,6 +117,22 @@ public enum DaemonSocketConfiguration {
     } else {
       return URL(fileURLWithPath: NSTemporaryDirectory()).appendingPathComponent("monocle-daemon.sock")
     }
+  }
+}
+
+/// Shared daemon defaults used by both the CLI and auto-launcher.
+public enum DaemonRuntimeConfiguration {
+  /// Matches the default value in ServeCommand.
+  public static let defaultIdleTimeoutSeconds: TimeInterval = 600
+
+  /// Directory for daemon logs and other runtime artifacts.
+  public static var logDirectoryURL: URL {
+    let home = FileManager.default.homeDirectoryForCurrentUser
+    return home.appendingPathComponent(".monocle", isDirectory: true)
+  }
+
+  public static var logFileURL: URL {
+    logDirectoryURL.appendingPathComponent("daemon.log")
   }
 }
 
