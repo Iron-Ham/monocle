@@ -1,8 +1,8 @@
 import Foundation
 
 /// Represents the workspace context used to drive SourceKit-LSP.
-public struct Workspace: Equatable, Hashable, Sendable {
-  public enum Kind: String, Sendable {
+public struct Workspace: Equatable, Hashable, Sendable, Codable {
+  public enum Kind: String, Sendable, Codable {
     case swiftPackage
     case xcodeProject
     case xcodeWorkspace

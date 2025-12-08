@@ -26,9 +26,13 @@ struct InspectCommand: AsyncParsableCommand {
   var json: Bool = false
   
   mutating func run() async throws {
-    let workspaceDescription = try WorkspaceLocator.locate(explicitWorkspacePath: workspace, filePath: file)
-    let session = LspSession(workspace: workspaceDescription)
-    let info = try await session.inspectSymbol(file: file, line: line, column: column)
+    let info = try await SymbolCommandRunner.perform(
+      method: .inspect,
+      workspace: workspace,
+      file: file,
+      line: line,
+      column: column
+    )
     
     if json {
       try printJSON(info)

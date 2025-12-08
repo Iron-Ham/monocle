@@ -9,6 +9,9 @@ struct MonocleCommand: AsyncParsableCommand {
         InspectCommand.self,
         DefinitionCommand.self,
         HoverCommand.self,
+        StatusCommand.self,
+        ServeCommand.self,
+        StopCommand.self,
         VersionCommand.self
       ],
       defaultSubcommand: InspectCommand.self

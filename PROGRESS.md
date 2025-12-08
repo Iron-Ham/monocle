@@ -7,4 +7,5 @@
 - `LspSession` is now an actor that starts the service, sends `didOpen`, and serves `inspect`, `definition`, and `hover` by forwarding LSP requests and returning snippets.
 - CLI commands now use the real session and JSON encoder; `version` reports the detected SourceKit-LSP version.
 - Ensured Sendable conformance for workspace and symbol models to satisfy Swift 6 concurrency checks.
-- Current status (2025-12-08): `swift build --quiet` succeeds with functional LSP-backed inspect/definition/hover paths for the MVP CLI.
+- Added daemon mode: Unix-domain-socket server that pools `LspSession` instances with idle reaping, plus CLI `serve` command and daemon-aware inspect/definition/hover commands that fall back to direct LSP if the daemon is unavailable.
+- Current status (2025-12-08): `swift build --quiet` succeeds with functional LSP-backed inspect/definition/hover paths and the new daemon server/client flow for faster repeat calls.

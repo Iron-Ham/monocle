@@ -7,10 +7,40 @@ This document gives a high-level view of how the project is structured and how i
 
 ---
 
+## General Instructions
+
+Pay attention to these general instructions and closely follow them!
+
+- Whenever you make changes to the code, build the project afterwards to ensure everything still compiles.
+- Whenever you make changes to unit tests, run the test suite to verify the changes.
+- Always prefer readability over conciseness/compactness.
+- Never commit unless instructed to do so.
+
+### **IMPORTANT**: Before you start
+
+- Always scan the Internal and External Resources lists for anything that applies to the work you are doing (features, providers, database, AI tools, tests, docstrings, changelog, commits, etc.) and read those guidelines before making changes.
+- When asked to commit changes to the repository, always read and understand the commit guidelines before doing anything!
+
+### When you are done
+
+- Always build the project to check for compilation errors.
+- When you have added or modified Swift files, always run `swiftformat --config ".swiftformat" {files}`.
+
+## Internal Resources
+
+Use these documents proactively whenever you work on the corresponding area; they define the constraints and patterns you must follow.
+
+- agents/guidelines/commit.md - Guidelines for committing changes to the repository
+- agents/swift/docc.md - Guidelines on writing docstrings in Swift
+
+---
+
 ## Build Instructions
 
 - Build from the repository root with `swift build`.
 - Prefer `swift build --quiet` to reduce noise; only drop `--quiet` when debugging a failure.
+
+---
 
 ## 1. Purpose and Scope
 
@@ -25,7 +55,7 @@ The tool focuses on **understanding** existing Swift code, not modifying it.
 
 ## 2. High-Level Architecture
 
-The project is structured into clear layers to keep responsibilities separate and make future extensions (like a daemon/server) straightforward.
+The project is structured into clear layers to keep responsibilities separate while allowing the daemon/server to build on the same foundations.
 
 ### 2.1 Core Layer
 
@@ -49,17 +79,11 @@ The CLI layer provides the `monocle` executable and user-facing interface:
 
 The CLI is a thin wrapper around the core logic. Any substantial behavior should live in the core layer rather than in CLI commands.
 
-### 2.3 Daemon Layer (Future)
+### 2.3 Daemon Layer
 
-A future extension introduces a long-lived daemon/server:
+The long-lived daemon/server keeps one or more LSP sessions alive across requests, handles JSON requests over a local socket (e.g. Unix domain socket), and manages idle timeouts and cleanup when sessions are unused.
 
-- Keeps one or more LSP sessions alive across requests.
-- Handles JSON requests over a local socket (e.g. Unix domain socket).
-- Manages idle timeouts and cleans up sessions when they are unused.
-
-The CLI will gain additional commands to start and stop the daemon, and symbol-related commands will prefer talking to the daemon when available, with a fallback to the “one LSP session per process” behavior in the core.
-
-The daemon itself builds on the same core API as the CLI.
+The CLI includes commands to start and stop the daemon, and symbol-related commands prefer talking to the daemon when available, with a fallback to the “one LSP session per process” behavior in the core. The daemon builds on the same core API as the CLI.
 
 ---
 
@@ -76,7 +100,7 @@ monocle/
       Workspace.swift
       WorkspaceLocator.swift
       Errors.swift
-      // (Later) Server.swift, protocol definitions for daemon mode
+      Server.swift, protocol definitions for daemon mode
     MonocleCLI/
       main.swift
       Commands/
@@ -84,7 +108,8 @@ monocle/
         DefinitionCommand.swift
         HoverCommand.swift
         VersionCommand.swift
-        // (Later) ServeCommand.swift, StopCommand.swift
+        ServeCommand.swift
+        StopCommand.swift
   Tests/
     MonocleCoreTests/
       WorkspaceLocatorTests.swift
@@ -104,9 +129,9 @@ The names of individual files and types may change, but this layout illustrates 
 
 ## 4. Behavior and Workflow
 
-### 4.1 MVP Behavior
+### 4.1 One-Shot CLI Workflow
 
-In the initial implementation, each CLI invocation behaves independently:
+Each standalone CLI invocation can operate independently:
 
 1. Determine the workspace from the supplied file and optional workspace root.
 2. Start a new LSP session (launch `sourcekit-lsp`).
@@ -114,13 +139,11 @@ In the initial implementation, each CLI invocation behaves independently:
 4. Print the result (text or JSON).
 5. Shut down the LSP session and exit.
 
-This model is simple and robust, but each call pays the cost of starting SourceKit-LSP and building context.
+### 4.2 Daemon Workflow
 
-### 4.2 Daemon Behavior (Planned)
+When the daemon is running, the workflow routes through the server:
 
-In the daemon-based model, the workflow changes:
-
-1. A server process is started once (e.g. `monocle serve`).
+1. Start the server once (e.g. `monocle serve`).
 2. The server maintains a pool or map of active LSP sessions keyed by workspace.
 3. The CLI and other clients send small JSON requests to the server over a socket.
 4. The server routes each request to the appropriate LSP session and returns the result.
@@ -151,43 +174,7 @@ When extending or refactoring the project, the following principles should be pr
 
 ---
 
-## 6. Implementation Phases
-
-### 6.1 Phase 1: Core + CLI (MVP)
-
-Goals for the first phase:
-
-- Implement workspace detection for SwiftPM and Xcode projects.
-- Implement a minimal LSP session that can:
-  - Initialize and shut down SourceKit-LSP.
-  - Open a file and request definition and hover information at a position.
-- Implement CLI commands that:
-  - Accept file, line, column, and optional workspace.
-  - Invoke the core logic.
-  - Print human-readable and JSON output.
-
-This phase treats each CLI process as self-contained: one process equals one LSP session.
-
-### 6.2 Phase 2: Daemon / Server
-
-Goals for the daemon phase:
-
-- Add a server component that:
-  - Listens on a local socket.
-  - Accepts JSON requests and returns JSON responses.
-  - Manages multiple LSP sessions associated with different workspaces.
-  - Cleans up sessions and exits after an idle period.
-
-- Extend the CLI to:
-  - Start the server (`serve`).
-  - Optionally stop the server (`stop`).
-  - Prefer using the server for symbol-related commands, with a fallback to the MVP behavior if the server is unavailable.
-
-This phase focuses on performance and repeated use rather than changing core semantics.
-
----
-
-## 7. Extension Guidelines
+## 6. Extension Guidelines
 
 - New features should be evaluated in terms of which layer they belong to. LSP-related logic belongs in core, user interaction in the CLI, and connection management in the daemon.
 - Changes to the core API should be made cautiously, as both CLI and daemon depend on it.

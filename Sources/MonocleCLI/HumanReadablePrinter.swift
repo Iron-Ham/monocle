@@ -29,4 +29,17 @@ enum HumanReadablePrinter {
       print("Symbol resolution is not implemented yet.")
     }
   }
+  
+  static func printDaemonStatus(_ status: DaemonStatus) {
+    print("Daemon socket: \(status.socketPath)")
+    print("Idle session timeout: \(status.idleSessionTimeoutSeconds)s")
+    if status.activeSessions.isEmpty {
+      print("Active sessions: none")
+      return
+    }
+    print("Active sessions (\(status.activeSessions.count)):")
+    for session in status.activeSessions {
+      print(" - \(session.workspaceRootPath) [\(session.kind.rawValue)] last used \(session.lastUsedISO8601)")
+    }
+  }
 }
