@@ -1,8 +1,8 @@
 import Foundation
 
 /// Represents the resolved information for a Swift symbol.
-public struct SymbolInfo: Codable {
-  public struct Location: Codable {
+public struct SymbolInfo: Codable, Sendable {
+  public struct Location: Codable, Sendable {
     public var uri: URL
     public var startLine: Int
     public var startCharacter: Int

@@ -27,7 +27,7 @@ struct DefinitionCommand: AsyncParsableCommand {
   
   mutating func run() async throws {
     let workspaceDescription = try WorkspaceLocator.locate(explicitWorkspacePath: workspace, filePath: file)
-    let session = try LspSession(workspace: workspaceDescription)
+    let session = LspSession(workspace: workspaceDescription)
     let info = try await session.definition(file: file, line: line, column: column)
     
     if json {

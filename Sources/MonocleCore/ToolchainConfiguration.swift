@@ -1,7 +1,7 @@
 import Foundation
 
 /// Describes an optional custom toolchain configuration.
-public struct ToolchainConfiguration {
+public struct ToolchainConfiguration: Sendable {
   public var developerDirectory: String?
   public var sourceKitPath: String?
   

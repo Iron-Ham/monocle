@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import MonocleCore
 
 struct VersionCommand: ParsableCommand {
   static var configuration: CommandConfiguration {
@@ -11,7 +12,7 @@ struct VersionCommand: ParsableCommand {
   
   func run() throws {
     let toolVersion = "0.1.0-mvp"
-    let sourceKitVersion = "unavailable (stub)"
+    let sourceKitVersion = try SourceKitService.detectSourceKitVersion()
     print("monocle \(toolVersion)")
     print("SourceKit-LSP: \(sourceKitVersion)")
   }
