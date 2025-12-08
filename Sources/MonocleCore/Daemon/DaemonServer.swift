@@ -17,6 +17,12 @@ public final class DaemonServer: @unchecked Sendable {
   private var shutdownContinuation: CheckedContinuation<Void, Never>?
   private var isStopping = false
 
+  /// Creates a daemon server that listens for monocle requests.
+  ///
+  /// - Parameters:
+  ///   - socketURL: Filesystem URL where the Unix domain socket should be created.
+  ///   - idleSessionTimeout: Duration, in seconds, after which idle sessions are reaped.
+  ///   - toolchain: Optional toolchain configuration forwarded to new sessions.
   public init(
     socketURL: URL = DaemonSocketConfiguration.defaultSocketURL,
     idleSessionTimeout: TimeInterval = 600,
@@ -73,6 +79,7 @@ public final class DaemonServer: @unchecked Sendable {
 
   // MARK: - Private helpers
 
+  /// Accepts incoming socket connections and hands them to `handleClient`.
   private func acceptLoop() async {
     while !Task.isCancelled {
       do {
@@ -89,6 +96,9 @@ public final class DaemonServer: @unchecked Sendable {
     }
   }
 
+  /// Handles a single client connection from request decoding to response writing.
+  ///
+  /// - Parameter descriptor: Connected client file descriptor.
   private func handleClient(descriptor: Int32) async {
     defer { close(descriptor) }
 
@@ -121,6 +131,7 @@ public final class DaemonServer: @unchecked Sendable {
     }
   }
 
+  /// Ensures the socket directory exists and removes any stale socket file.
   private func prepareSocketPath() throws {
     let directoryURL = socketURL.deletingLastPathComponent()
     try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
@@ -129,6 +140,7 @@ public final class DaemonServer: @unchecked Sendable {
     }
   }
 
+  /// Deletes the socket file if it still exists.
   private func removeSocketFile() {
     if FileManager.default.fileExists(atPath: socketURL.path) {
       try? FileManager.default.removeItem(at: socketURL)

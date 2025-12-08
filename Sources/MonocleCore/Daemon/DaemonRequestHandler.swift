@@ -4,11 +4,17 @@ import Foundation
 
 /// Converts decoded daemon requests into responses using the session manager.
 struct DaemonRequestHandler {
+  /// Session manager used to serve symbol queries.
   var sessionManager: DaemonSessionManager
+  /// Path of the Unix socket the daemon listens on.
   var socketPath: String
+  /// Idle timeout used for reporting status.
   var idleSessionTimeout: TimeInterval
 
   /// Handles the request and always returns a response (never throws).
+  ///
+  /// - Parameter request: Decoded daemon request.
+  /// - Returns: Response representing success, status, or an error payload.
   func handle(_ request: DaemonRequest) async -> DaemonResponse {
     switch request.method {
     case .shutdown:

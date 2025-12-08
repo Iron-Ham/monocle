@@ -107,7 +107,6 @@ monocle/
         InspectCommand.swift
         DefinitionCommand.swift
         HoverCommand.swift
-        VersionCommand.swift
         ServeCommand.swift
         StopCommand.swift
   Tests/

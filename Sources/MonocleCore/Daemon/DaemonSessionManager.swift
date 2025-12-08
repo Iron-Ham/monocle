@@ -8,11 +8,19 @@ public actor DaemonSessionManager {
   private var lastUsedDates: [Workspace: Date] = [:]
   private let toolchain: ToolchainConfiguration?
 
+  /// Creates a session manager that can reuse LSP sessions across requests.
+  ///
+  /// - Parameter toolchain: Optional toolchain overrides passed to new sessions.
   public init(toolchain: ToolchainConfiguration? = nil) {
     self.toolchain = toolchain
   }
 
   /// Executes a symbol-related method and returns the result or error payload.
+  ///
+  /// - Parameters:
+  ///   - method: Symbol method requested by the client.
+  ///   - parameters: Workspace and position details for the request.
+  /// - Returns: Success with symbol info or a daemon error payload.
   public func handle(method: DaemonMethod,
                      parameters: DaemonRequestParameters) async -> Result<SymbolInfo, DaemonErrorPayload> {
     do {
@@ -54,6 +62,11 @@ public actor DaemonSessionManager {
   }
 
   /// Provides metadata about active sessions.
+  ///
+  /// - Parameters:
+  ///   - socketPath: Path of the daemon's Unix domain socket.
+  ///   - idleSessionTimeout: Idle timeout used to reap sessions.
+  /// - Returns: Status payload describing current daemon state.
   public func status(socketPath: String, idleSessionTimeout: TimeInterval) async -> DaemonStatus {
     let formatter = ISO8601DateFormatter()
     let sessionsInfo = sessions.map { workspace, session in
@@ -69,11 +82,13 @@ public actor DaemonSessionManager {
       activeSessions: sessionsInfo,
       socketPath: socketPath,
       idleSessionTimeoutSeconds: Int(idleSessionTimeout),
-      logFilePath: DaemonRuntimeConfiguration.logFileURL.path
+      logFilePath: DaemonRuntimeConfiguration.logFileURL.path,
     )
   }
 
   /// Stops and discards sessions that have not been used recently.
+  ///
+  /// - Parameter idleInterval: Maximum age, in seconds, before a session is reaped.
   public func reapIdleSessions(olderThan idleInterval: TimeInterval) async {
     let now = Date()
     for (workspace, lastUsed) in lastUsedDates {
@@ -98,6 +113,10 @@ public actor DaemonSessionManager {
 
   // MARK: - Private
 
+  /// Returns an existing LSP session for the workspace or creates a new one.
+  ///
+  /// - Parameter workspace: Workspace description used as the session key.
+  /// - Returns: A ready LSP session bound to the workspace.
   private func sessionForWorkspace(_ workspace: Workspace) async throws -> LspSession {
     if let existing = sessions[workspace] {
       return existing

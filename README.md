@@ -1,6 +1,19 @@
-# monocle
+# 🧐 monocle
 
 A read-only CLI for Swift symbol lookup via SourceKit-LSP, designed specifically for coding agents. Point it at a file, line, and column, and monocle resolves the symbol and returns its definition location, signature, and documentation—perfect for agents that need to understand unfamiliar APIs, including types from external Swift packages, without opening Xcode.
+
+## Table of Contents
+- [Why monocle](#why-monocle)
+- [Installation](#installation)
+- [Requirements](#requirements)
+- [Quick start](#quick-start)
+- [Agent snippet for AGENTS.md](#agent-snippet-for-agentsmd)
+- [What agents get](#what-agents-get)
+- [Commands](#commands)
+- [Daemon mode](#daemon-mode)
+- [Output details](#output-details)
+- [Troubleshooting](#troubleshooting)
+- [🙏 Acknowledgments](#-acknowledgments)
 
 ## Why monocle
 
@@ -32,6 +45,30 @@ cp .build/release/monocle /usr/local/bin/
 - macOS 13 or newer
 - Xcode or a Swift toolchain that provides `sourcekit-lsp` on your PATH (monocle uses `xcrun sourcekit-lsp`)
 
+### Xcode projects: generate `buildServer.json`
+
+For Xcode workspaces or projects, SourceKit-LSP works best when a `buildServer.json` file is present in the workspace root. Generate it with the `xcode-build-server` tool before using monocle:
+
+```bash
+xcode-build-server config -workspace MyApp.xcworkspace -scheme MyApp
+```
+
+Example `buildServer.json`:
+
+```json
+{
+  "name": "xcode build server",
+  "version": "0.2",
+  "bspVersion": "2.0",
+  "languages": ["c", "cpp", "objective-c", "objective-cpp", "swift"],
+  "argv": ["/opt/homebrew/bin/xcode-build-server"],
+  "workspace": "/path/to/MyApp.xcodeproj/project.xcworkspace",
+  "build_root": "/path/to/DerivedData/MyApp-abcdefg",
+  "scheme": "MyApp",
+  "kind": "xcode"
+}
+```
+
 ## Quick start
 
 Inspect the symbol under the cursor (human-readable output):
@@ -47,6 +84,18 @@ monocle inspect --file Sources/App/FooView.swift --line 42 --column 17 --json
 If you prefer shorter commands, `inspect` is the default subcommand:
 ```bash
 monocle --file Sources/App/FooView.swift --line 42 --column 17
+```
+
+## Agent snippet for AGENTS.md
+
+Paste this block into your AGENTS guide so coding agents know how to use monocle:
+
+```markdown
+## `monocle` cli
+- You have the `monocle` CLI available for read-only Swift symbol inspection.
+- Use `monocle inspect --file <path> --line <line> --column <column> --json` to fetch definition, signature, and docs in one call.
+- Add `--workspace <root>` when the workspace is ambiguous (multiple packages or Xcode projects).
+- monocle is read-only: it never edits source; safe to use in any repository.
 ```
 
 ### What agents get
@@ -79,7 +128,7 @@ Example JSON output:
 - `serve` — start the persistent daemon
 - `status` — show daemon socket, idle timeout, and active LSP sessions
 - `stop` — stop the daemon
-- `version` — print monocle and SourceKit-LSP versions
+- `--version` — print monocle and SourceKit-LSP versions
 
 Common options for symbol commands:
 - `--workspace /path/to/root` (optional) – override automatic workspace detection
@@ -108,3 +157,9 @@ Human-readable output prints the symbol name, kind, module, signature, definitio
 - Make sure `sourcekit-lsp` works by running `xcrun sourcekit-lsp --version` manually. If it fails, install Xcode or the Swift toolchain.
 - For SwiftPM workspaces, monocle creates a scratch directory at `.sourcekit-lsp-scratch` under the workspace root. You can safely remove it if you need a clean slate.
 - If monocle can't find your workspace, use `--workspace` to point directly at your package or Xcode project.
+
+## 🙏 Acknowledgments
+
+- Built with the amazing Swift ecosystem and community
+
+Made with ❤️ for the Swift community

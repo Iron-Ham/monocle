@@ -1,3 +1,5 @@
+// By Dennis Müller
+
 import Foundation
 import LanguageClient
 import LanguageServerProtocol
@@ -9,49 +11,57 @@ public actor LspSession {
   private let sourceKitService: SourceKitService
   private var server: InitializingServer?
   private var openedDocuments: Set<String> = []
-  
+
+  /// Creates a session bound to a workspace with an optional toolchain override.
+  ///
+  /// - Parameters:
+  ///   - workspace: Workspace description that determines how SourceKit-LSP should start.
+  ///   - toolchain: Optional toolchain configuration to pass through to SourceKit-LSP.
   public init(workspace: Workspace, toolchain: ToolchainConfiguration? = nil) {
     self.workspace = workspace
     self.toolchain = toolchain
-    self.sourceKitService = SourceKitService()
+    sourceKitService = SourceKitService()
   }
-  
+
   /// Provides a combined definition and hover view for a symbol.
   public func inspectSymbol(file: String, line: Int, column: Int) async throws -> SymbolInfo {
     let connection = try await ensureSessionReady()
     let definitionInfo = try await fetchDefinition(connection: connection, file: file, line: line, column: column)
     let hoverInfo = try await fetchHover(connection: connection, file: file, line: line, column: column)
-    
+
     return SymbolInfo(
       symbol: hoverInfo.symbol ?? definitionInfo.symbol,
       kind: definitionInfo.kind ?? hoverInfo.kind,
       module: definitionInfo.module ?? hoverInfo.module,
       definition: definitionInfo.definition,
       signature: hoverInfo.signature ?? definitionInfo.signature,
-      documentation: hoverInfo.documentation ?? definitionInfo.documentation
+      documentation: hoverInfo.documentation ?? definitionInfo.documentation,
     )
   }
-  
+
   /// Returns definition-only information for a symbol.
   public func definition(file: String, line: Int, column: Int) async throws -> SymbolInfo {
     let connection = try await ensureSessionReady()
     return try await fetchDefinition(connection: connection, file: file, line: line, column: column)
   }
-  
+
   /// Returns hover-only information for a symbol.
   public func hover(file: String, line: Int, column: Int) async throws -> SymbolInfo {
     let connection = try await ensureSessionReady()
     return try await fetchHover(connection: connection, file: file, line: line, column: column)
   }
-  
+
   /// Gracefully stops the LSP session.
   public func shutdown() async {
     await sourceKitService.shutdown()
     server = nil
   }
-  
+
   // MARK: - Private helpers
-  
+
+  /// Ensures there is an initialized SourceKit-LSP connection, starting one if necessary.
+  ///
+  /// - Returns: An initialized server connection ready for requests.
   private func ensureSessionReady() async throws -> InitializingServer {
     if let existing = server {
       return existing
@@ -60,16 +70,31 @@ public actor LspSession {
     server = initialized
     return initialized
   }
-  
-  private func fetchDefinition(connection: InitializingServer, file: String, line: Int, column: Int) async throws -> SymbolInfo {
+
+  /// Looks up definition information for the provided location.
+  ///
+  /// - Parameters:
+  ///   - connection: Active SourceKit-LSP server connection.
+  ///   - file: Absolute path to the Swift source file.
+  ///   - line: One-based line number where the symbol resides.
+  ///   - column: One-based column number within the line.
+  /// - Returns: Symbol metadata describing the resolved definition.
+  /// - Throws: `MonocleError.symbolNotFound` when no definition is returned.
+  private func fetchDefinition(connection: InitializingServer, file: String, line: Int,
+                               column: Int) async throws -> SymbolInfo {
     let textDocumentParams = try makeTextDocumentPosition(file: file, line: line, column: column)
     try await openIfNeeded(connection: connection, file: file)
     let retryPolicy = makeRetryPolicy()
-    guard let response = try await performWithRetries(maxAttempts: retryPolicy.maxAttempts, delayNanoseconds: retryPolicy.delayNanoseconds, {
-      try await connection.definition(textDocumentParams)
-    }) else {
+    guard let response = try await performWithRetries(
+      maxAttempts: retryPolicy.maxAttempts,
+      delayNanoseconds: retryPolicy.delayNanoseconds,
+      {
+        try await connection.definition(textDocumentParams)
+      },
+    ) else {
       throw MonocleError.symbolNotFound
     }
+
     let location = try resolveLocation(from: response)
     return SymbolInfo(
       symbol: location.symbolName,
@@ -77,19 +102,34 @@ public actor LspSession {
       module: location.moduleName,
       definition: location.info,
       signature: nil,
-      documentation: nil
+      documentation: nil,
     )
   }
-  
-  private func fetchHover(connection: InitializingServer, file: String, line: Int, column: Int) async throws -> SymbolInfo {
+
+  /// Retrieves hover content for the provided location.
+  ///
+  /// - Parameters:
+  ///   - connection: Active SourceKit-LSP server connection.
+  ///   - file: Absolute path to the Swift source file.
+  ///   - line: One-based line number where the symbol resides.
+  ///   - column: One-based column number within the line.
+  /// - Returns: Symbol metadata derived from hover information.
+  /// - Throws: `MonocleError.symbolNotFound` when hover data is unavailable.
+  private func fetchHover(connection: InitializingServer, file: String, line: Int,
+                          column: Int) async throws -> SymbolInfo {
     let textDocumentParams = try makeTextDocumentPosition(file: file, line: line, column: column)
     try await openIfNeeded(connection: connection, file: file)
     let retryPolicy = makeRetryPolicy()
-    guard let hoverResponse = try await performWithRetries(maxAttempts: retryPolicy.maxAttempts, delayNanoseconds: retryPolicy.delayNanoseconds, {
-      try await connection.hover(textDocumentParams)
-    }) else {
+    guard let hoverResponse = try await performWithRetries(
+      maxAttempts: retryPolicy.maxAttempts,
+      delayNanoseconds: retryPolicy.delayNanoseconds,
+      {
+        try await connection.hover(textDocumentParams)
+      },
+    ) else {
       throw MonocleError.symbolNotFound
     }
+
     let rendered = renderHover(hoverResponse)
     return SymbolInfo(
       symbol: rendered.symbol,
@@ -97,19 +137,33 @@ public actor LspSession {
       module: rendered.module,
       definition: nil,
       signature: rendered.signature,
-      documentation: rendered.documentation
+      documentation: rendered.documentation,
     )
   }
-  
+
+  /// Builds a text document position request after validating line and column values.
+  ///
+  /// - Parameters:
+  ///   - file: Absolute path to the Swift source file.
+  ///   - line: One-based line number of the requested position.
+  ///   - column: One-based column number of the requested position.
+  /// - Returns: A `TextDocumentPositionParams` ready for LSP requests.
+  /// - Throws: `MonocleError.ioError` when line or column are invalid.
   private func makeTextDocumentPosition(file: String, line: Int, column: Int) throws -> TextDocumentPositionParams {
     guard line > 0, column > 0 else {
       throw MonocleError.ioError("Line and column must be one-based positive values.")
     }
+
     let uri = URL(fileURLWithPath: file).absoluteString
     let position = Position(line: line - 1, character: column - 1)
     return TextDocumentPositionParams(textDocument: TextDocumentIdentifier(uri: uri), position: position)
   }
-  
+
+  /// Opens the document in the LSP session if it has not been opened already.
+  ///
+  /// - Parameters:
+  ///   - connection: Active SourceKit-LSP server connection.
+  ///   - file: Absolute path to the Swift source file.
   private func openIfNeeded(connection: InitializingServer, file: String) async throws {
     let uri = URL(fileURLWithPath: file).absoluteString
     if openedDocuments.contains(uri) { return }
@@ -118,18 +172,26 @@ public actor LspSession {
     try await connection.textDocumentDidOpen(DidOpenTextDocumentParams(textDocument: item))
     openedDocuments.insert(uri)
   }
-  
-  private func resolveLocation(from response: DefinitionResponse) throws -> (info: SymbolInfo.Location, symbolName: String?, kind: String?, moduleName: String?) {
+
+  /// Resolves a usable location and symbol metadata from a `DefinitionResponse`.
+  ///
+  /// - Parameter response: The raw LSP definition response.
+  /// - Returns: Tuple containing a prepared location and optional symbol metadata.
+  /// - Throws: `MonocleError.symbolNotFound` when the response is empty.
+  private func resolveLocation(from response: DefinitionResponse) throws
+    -> (info: SymbolInfo.Location, symbolName: String?, kind: String?, moduleName: String?) {
     switch response {
-    case .optionA(let singleLocation):
+    case let .optionA(singleLocation):
       let locationInfo = try makeLocation(singleLocation)
       return (locationInfo, nil, nil, nil)
-    case .optionB(let locations):
+    case let .optionB(locations):
       guard let first = locations.first else { throw MonocleError.symbolNotFound }
+
       let locationInfo = try makeLocation(first)
       return (locationInfo, nil, nil, nil)
-    case .optionC(let links):
+    case let .optionC(links):
       guard let first = links.first else { throw MonocleError.symbolNotFound }
+
       let location = first.targetSelectionRange
       let uri = URL(string: first.targetUri) ?? URL(fileURLWithPath: first.targetUri)
       let locationInfo = SymbolInfo.Location(
@@ -138,14 +200,19 @@ public actor LspSession {
         startCharacter: location.start.character + 1,
         endLine: location.end.line + 1,
         endCharacter: location.end.character + 1,
-        snippet: extractSnippet(from: uri, range: location)
+        snippet: extractSnippet(from: uri, range: location),
       )
       return (locationInfo, nil, nil, nil)
     case .none:
       throw MonocleError.symbolNotFound
     }
   }
-  
+
+  /// Converts an LSP `Location` into the `SymbolInfo.Location` representation.
+  ///
+  /// - Parameter location: LSP location containing URI and range.
+  /// - Returns: A converted location with one-based line and column values.
+  /// - Throws: `MonocleError.symbolNotFound` when the URI is malformed.
   private func makeLocation(_ location: Location) throws -> SymbolInfo.Location {
     let uri = URL(string: location.uri) ?? URL(fileURLWithPath: location.uri)
     return SymbolInfo.Location(
@@ -154,45 +221,78 @@ public actor LspSession {
       startCharacter: location.range.start.character + 1,
       endLine: location.range.end.line + 1,
       endCharacter: location.range.end.character + 1,
-      snippet: extractSnippet(from: uri, range: location.range)
+      snippet: extractSnippet(from: uri, range: location.range),
     )
   }
-  
+
+  /// Extracts a code snippet for the given URI and LSP range, if the URI is file-based.
+  ///
+  /// - Parameters:
+  ///   - uri: URI pointing to a file on disk.
+  ///   - range: Zero-based LSP range describing the snippet bounds.
+  /// - Returns: The joined snippet text or `nil` when the file cannot be read.
   private func extractSnippet(from uri: URL, range: LSPRange) -> String? {
     guard uri.isFileURL else { return nil }
     guard let contents = try? String(contentsOf: uri) else { return nil }
+
     let lines = contents.split(separator: "\n", omittingEmptySubsequences: false)
     guard range.start.line < lines.count, range.end.line < lines.count else { return nil }
+
     let slice = lines[range.start.line...range.end.line]
     return slice.joined(separator: "\n")
   }
-  
+
   private struct HoverRender {
+    /// Rendered signature text extracted from hover content.
     var signature: String?
+    /// Documentation body extracted from hover content.
     var documentation: String?
+    /// Symbol display name when available from hover content.
     var symbol: String?
+    /// Symbol kind when available from hover content.
     var kind: String?
+    /// Module name when available from hover content.
     var module: String?
   }
-  
+
+  /// Splits hover content into signature and documentation components.
+  ///
+  /// - Parameter hover: Raw hover response returned by SourceKit-LSP.
+  /// - Returns: A structured render containing signature and documentation text when present.
   private func renderHover(_ hover: Hover) -> HoverRender {
-    let value: String
-    switch hover.contents {
-    case .optionA(let marked):
-      value = marked.value
-    case .optionB(let markedArray):
-      value = markedArray.map { $0.value }.joined(separator: "\n")
-    case .optionC(let markup):
-      value = markup.value
+    let value: String = switch hover.contents {
+    case let .optionA(marked):
+      marked.value
+    case let .optionB(markedArray):
+      markedArray.map(\.value).joined(separator: "\n")
+    case let .optionC(markup):
+      markup.value
     }
     // Heuristically split signature from docs if possible.
     let components = value.components(separatedBy: "\n\n")
     let signature = components.first
     let documentation = components.dropFirst().joined(separator: "\n\n")
-    return HoverRender(signature: signature, documentation: documentation.isEmpty ? nil : documentation, symbol: nil, kind: nil, module: nil)
+    return HoverRender(
+      signature: signature,
+      documentation: documentation.isEmpty ? nil : documentation,
+      symbol: nil,
+      kind: nil,
+      module: nil,
+    )
   }
 
-  private func performWithRetries<T>(maxAttempts: Int, delayNanoseconds: UInt64, _ operation: @escaping () async throws -> T?) async throws -> T? {
+  /// Repeatedly executes an async operation until it produces a value or attempts are exhausted.
+  ///
+  /// - Parameters:
+  ///   - maxAttempts: Maximum number of attempts to make.
+  ///   - delayNanoseconds: Delay inserted between attempts.
+  ///   - operation: Async operation that returns an optional value.
+  /// - Returns: The first non-`nil` result or `nil` when attempts are exhausted.
+  private func performWithRetries<T>(
+    maxAttempts: Int,
+    delayNanoseconds: UInt64,
+    _ operation: @escaping () async throws -> T?,
+  ) async throws -> T? {
     var attempt = 0
     while attempt < maxAttempts {
       if let result = try await operation() {
@@ -204,12 +304,15 @@ public actor LspSession {
     return nil
   }
 
+  /// Chooses retry behavior tuned to the workspace kind.
+  ///
+  /// - Returns: Attempt and delay values suitable for SourceKit-LSP readiness.
   private func makeRetryPolicy() -> (maxAttempts: Int, delayNanoseconds: UInt64) {
     switch workspace.kind {
     case .swiftPackage:
-      return (maxAttempts: 15, delayNanoseconds: 800_000_000) // SwiftPM often needs extra time to surface build settings
+      (maxAttempts: 15, delayNanoseconds: 800_000_000) // SwiftPM often needs extra time to surface build settings
     case .xcodeProject, .xcodeWorkspace:
-      return (maxAttempts: 5, delayNanoseconds: 350_000_000)
+      (maxAttempts: 5, delayNanoseconds: 350_000_000)
     }
   }
 }

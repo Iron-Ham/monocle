@@ -7,6 +7,10 @@ import Foundation
 enum UnixDomainSocket {
   /// Creates a connected client descriptor for the given path.
   /// The caller is responsible for closing the returned descriptor.
+  ///
+  /// - Parameter path: Filesystem path of the Unix domain socket.
+  /// - Returns: Connected client descriptor.
+  /// - Throws: `POSIXError` when the socket cannot be opened or connected.
   static func connect(path: String) throws -> Int32 {
     let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
     guard descriptor >= 0 else {
@@ -46,6 +50,10 @@ enum UnixDomainSocket {
 
   /// Creates, binds, and listens on a Unix domain socket at `path`.
   /// Returns the listening descriptor; the caller is responsible for closing it.
+  ///
+  /// - Parameter path: Filesystem path of the Unix domain socket.
+  /// - Returns: Listening socket descriptor.
+  /// - Throws: `POSIXError` when creation, bind, or listen fails.
   static func openListener(at path: String) throws -> Int32 {
     let descriptor = socket(AF_UNIX, SOCK_STREAM, 0)
     guard descriptor >= 0 else {
@@ -89,6 +97,10 @@ enum UnixDomainSocket {
   }
 
   /// Accepts a single connection from a listening descriptor, returning the client descriptor.
+  ///
+  /// - Parameter descriptor: Listening socket descriptor returned by `openListener`.
+  /// - Returns: Connected client descriptor.
+  /// - Throws: `POSIXError` when accept fails.
   static func accept(from descriptor: Int32) throws -> Int32 {
     var address = sockaddr()
     var length = socklen_t(MemoryLayout<sockaddr>.size)
