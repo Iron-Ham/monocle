@@ -1,3 +1,5 @@
+// By Dennis Müller
+
 import ArgumentParser
 import Foundation
 import MonocleCore
@@ -6,12 +8,12 @@ struct VersionCommand: ParsableCommand {
   static var configuration: CommandConfiguration {
     CommandConfiguration(
       commandName: "version",
-      abstract: "Show version information."
+      abstract: "Show version information.",
     )
   }
-  
+
   func run() throws {
-    let toolVersion = "0.1.0-mvp"
+    let toolVersion = "0.1.0"
     let sourceKitVersion = try SourceKitService.detectSourceKitVersion()
     print("monocle \(toolVersion)")
     print("SourceKit-LSP: \(sourceKitVersion)")
