@@ -52,4 +52,39 @@ enum HumanReadablePrinter {
       print(" - \(session.workspaceRootPath) [\(session.kind.rawValue)] last used \(session.lastUsedISO8601)")
     }
   }
+
+  /// Prints workspace symbol search results.
+  ///
+  /// - Parameter results: Symbol search results to display.
+  static func printSymbolSearchResults(_ results: [SymbolSearchResult]) {
+    guard results.isEmpty == false else {
+      print("No symbols found.")
+      return
+    }
+
+    for (index, result) in results.enumerated() {
+      var header = "[\(index + 1)] \(result.name)"
+      if let container = result.containerName {
+        header += " (\(container))"
+      }
+      if let kind = result.kind {
+        header += " – \(kind)"
+      }
+      print(header)
+
+      if let location = result.location {
+        let path = location.uri.isFileURL ? location.uri.path : location.uri.absoluteString
+        print("    \(path):\(location.startLine)")
+      } else if let documentURI = result.documentURI {
+        let path = documentURI.isFileURL ? documentURI.path : documentURI.absoluteString
+        print("    \(path)")
+      }
+      if let signature = result.signature {
+        print("    \(signature)")
+      }
+      if let documentation = result.documentation, documentation.isEmpty == false {
+        print("    \(documentation)")
+      }
+    }
+  }
 }

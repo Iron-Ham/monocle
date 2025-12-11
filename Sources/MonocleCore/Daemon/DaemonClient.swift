@@ -90,6 +90,26 @@ public struct DaemonClient {
     return try extractResult(from: response)
   }
 
+  /// Searches workspace symbols via the daemon.
+  ///
+  /// - Parameters:
+  ///   - query: Search string forwarded to SourceKit-LSP.
+  ///   - limit: Optional maximum number of results to return.
+  ///   - enrich: Whether to enrich results with definition/hover.
+  ///   - workspaceRootPath: Optional workspace root override.
+  /// - Returns: Workspace symbol search results.
+  public func symbolSearch(query: String, limit: Int?, enrich: Bool?,
+                           workspaceRootPath: String?) async throws -> [SymbolSearchResult] {
+    let parameters = DaemonRequestParameters(
+      workspaceRootPath: workspaceRootPath,
+      query: query,
+      limit: limit,
+      enrich: enrich,
+    )
+    let response = try await send(method: .symbolSearch, parameters: parameters)
+    return try extractSymbolResults(from: response)
+  }
+
   // MARK: - Private
 
   /// Extracts the symbol result from a daemon response or throws an error payload.
@@ -105,6 +125,21 @@ public struct DaemonClient {
       throw error
     }
     throw DaemonErrorPayload(code: "no_result", message: "Daemon returned neither result nor error.")
+  }
+
+  /// Extracts symbol search results from a daemon response or throws an error payload.
+  ///
+  /// - Parameter response: Response returned by the daemon.
+  /// - Returns: Symbol search results when present.
+  /// - Throws: `DaemonErrorPayload` when the response contains an error or no results.
+  private func extractSymbolResults(from response: DaemonResponse) throws -> [SymbolSearchResult] {
+    if let results = response.symbolResults {
+      return results
+    }
+    if let error = response.error {
+      throw error
+    }
+    throw DaemonErrorPayload(code: "no_result", message: "Daemon returned neither results nor error.")
   }
 }
 

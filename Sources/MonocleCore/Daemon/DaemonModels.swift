@@ -10,6 +10,8 @@ public enum DaemonMethod: String, Codable, Sendable {
   case definition
   /// Returns only hover information for a symbol.
   case hover
+  /// Searches workspace symbols by name.
+  case symbolSearch
   /// Requests a graceful daemon shutdown.
   case shutdown
   /// Health check that ensures the daemon is reachable.
@@ -28,6 +30,12 @@ public struct DaemonRequestParameters: Codable, Sendable {
   public var line: Int
   /// One-based column number of the symbol location.
   public var column: Int
+  /// Search query for workspace symbol search.
+  public var query: String?
+  /// Optional limit for workspace symbol search results.
+  public var limit: Int?
+  /// Whether to enrich workspace symbol search results.
+  public var enrich: Bool?
 
   /// Creates a parameter payload for a daemon request.
   ///
@@ -41,6 +49,26 @@ public struct DaemonRequestParameters: Codable, Sendable {
     self.filePath = filePath
     self.line = line
     self.column = column
+    query = nil
+    limit = nil
+    enrich = nil
+  }
+
+  /// Creates parameters for a workspace symbol search request.
+  ///
+  /// - Parameters:
+  ///   - workspaceRootPath: Optional explicit workspace root path.
+  ///   - query: Search term forwarded to SourceKit-LSP.
+  ///   - limit: Optional maximum number of results to return.
+  ///   - enrich: Whether to enrich results with definition/hover details.
+  public init(workspaceRootPath: String?, query: String, limit: Int?, enrich: Bool?) {
+    self.workspaceRootPath = workspaceRootPath
+    filePath = ""
+    line = 1
+    column = 1
+    self.query = query
+    self.limit = limit
+    self.enrich = enrich
   }
 }
 
@@ -90,6 +118,8 @@ public struct DaemonResponse: Codable, Sendable {
   public var id: UUID
   /// Result payload returned for symbol-related requests.
   public var result: SymbolInfo?
+  /// Search results returned for workspace symbol queries.
+  public var symbolResults: [SymbolSearchResult]?
   /// Daemon status description returned by status requests.
   public var status: DaemonStatus?
   /// Error payload when the request failed.
@@ -103,6 +133,7 @@ public struct DaemonResponse: Codable, Sendable {
   public init(id: UUID, result: SymbolInfo) {
     self.id = id
     self.result = result
+    symbolResults = nil
     status = nil
     error = nil
   }
@@ -115,7 +146,21 @@ public struct DaemonResponse: Codable, Sendable {
   public init(id: UUID, status: DaemonStatus) {
     self.id = id
     result = nil
+    symbolResults = nil
     self.status = status
+    error = nil
+  }
+
+  /// Creates a success response containing symbol search results.
+  ///
+  /// - Parameters:
+  ///   - id: Identifier matching the request.
+  ///   - results: Symbol search results returned by the daemon.
+  public init(id: UUID, symbolResults: [SymbolSearchResult]) {
+    self.id = id
+    result = nil
+    self.symbolResults = symbolResults
+    status = nil
     error = nil
   }
 
@@ -127,6 +172,7 @@ public struct DaemonResponse: Codable, Sendable {
   public init(id: UUID, error: DaemonErrorPayload) {
     self.id = id
     result = nil
+    symbolResults = nil
     status = nil
     self.error = error
   }
@@ -219,6 +265,8 @@ extension DaemonErrorPayload {
     switch monocleError {
     case .workspaceNotFound:
       DaemonErrorPayload(code: "workspace_not_found", message: "Workspace could not be located for the provided file.")
+    case let .workspaceAmbiguous(options):
+      DaemonErrorPayload(code: "workspace_ambiguous", message: "Multiple workspace candidates were found: \(options.joined(separator: ", ")).")
     case let .lspLaunchFailed(description):
       DaemonErrorPayload(code: "lsp_launch_failed", message: description)
     case let .lspInitializationFailed(description):

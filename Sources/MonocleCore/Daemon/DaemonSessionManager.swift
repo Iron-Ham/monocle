@@ -24,10 +24,7 @@ public actor DaemonSessionManager {
   public func handle(method: DaemonMethod,
                      parameters: DaemonRequestParameters) async -> Result<SymbolInfo, DaemonErrorPayload> {
     do {
-      let workspace = try WorkspaceLocator.locate(
-        explicitWorkspacePath: parameters.workspaceRootPath,
-        filePath: parameters.filePath,
-      )
+      let workspace = try resolveWorkspace(from: parameters)
       let session = try await sessionForWorkspace(workspace)
       let info: SymbolInfo
       switch method {
@@ -41,7 +38,7 @@ public actor DaemonSessionManager {
         info = try await session.definition(file: parameters.filePath, line: parameters.line, column: parameters.column)
       case .hover:
         info = try await session.hover(file: parameters.filePath, line: parameters.line, column: parameters.column)
-      case .shutdown, .ping:
+      case .symbolSearch, .shutdown, .ping:
         return .failure(DaemonErrorPayload(
           code: "unsupported_method",
           message: "Method \(method.rawValue) is handled by the server control path.",
@@ -54,6 +51,33 @@ public actor DaemonSessionManager {
       }
       lastUsedDates[workspace] = Date()
       return .success(info)
+    } catch let error as MonocleError {
+      return .failure(DaemonErrorPayload.from(monocleError: error))
+    } catch {
+      return .failure(DaemonErrorPayload(code: "unknown_error", message: error.localizedDescription))
+    }
+  }
+
+  /// Executes a workspace symbol search request.
+  ///
+  /// - Parameter parameters: Workspace root, query, and optional enrichment options.
+  /// - Returns: Success with search results or an error payload.
+  public func searchSymbols(parameters: DaemonRequestParameters) async
+    -> Result<[SymbolSearchResult], DaemonErrorPayload> {
+    do {
+      guard let query = parameters.query else {
+        return .failure(DaemonErrorPayload(code: "invalid_parameters", message: "Missing search query."))
+      }
+
+      let workspace = try resolveWorkspace(from: parameters)
+      let session = try await sessionForWorkspace(workspace)
+      let results = try await session.searchSymbols(
+        matching: query,
+        limit: parameters.limit ?? 20,
+        enrich: parameters.enrich ?? false,
+      )
+      lastUsedDates[workspace] = Date()
+      return .success(results)
     } catch let error as MonocleError {
       return .failure(DaemonErrorPayload.from(monocleError: error))
     } catch {
@@ -112,6 +136,21 @@ public actor DaemonSessionManager {
   }
 
   // MARK: - Private
+
+  /// Resolves the workspace from the provided daemon parameters.
+  ///
+  /// - Parameter parameters: Request parameters containing the workspace root path.
+  /// - Returns: A workspace description derived from the explicit root path.
+  private func resolveWorkspace(from parameters: DaemonRequestParameters) throws -> Workspace {
+    guard let workspaceRootPath = parameters.workspaceRootPath else {
+      throw MonocleError.workspaceNotFound
+    }
+
+    return try WorkspaceLocator.locate(
+      explicitWorkspacePath: workspaceRootPath,
+      filePath: workspaceRootPath,
+    )
+  }
 
   /// Returns an existing LSP session for the workspace or creates a new one.
   ///

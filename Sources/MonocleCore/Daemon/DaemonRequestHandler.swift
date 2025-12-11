@@ -25,6 +25,14 @@ struct DaemonRequestHandler {
     case .status:
       let status = await sessionManager.status(socketPath: socketPath, idleSessionTimeout: idleSessionTimeout)
       return DaemonResponse(id: request.id, status: status)
+    case .symbolSearch:
+      let searchResult = await sessionManager.searchSymbols(parameters: request.parameters)
+      switch searchResult {
+      case let .success(results):
+        return DaemonResponse(id: request.id, symbolResults: results)
+      case let .failure(errorPayload):
+        return DaemonResponse(id: request.id, error: errorPayload)
+      }
     case .inspect, .definition, .hover:
       let result = await sessionManager.handle(method: request.method, parameters: request.parameters)
       switch result {

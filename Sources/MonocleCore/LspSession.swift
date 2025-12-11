@@ -51,6 +51,43 @@ public actor LspSession {
     return try await fetchHover(connection: connection, file: file, line: line, column: column)
   }
 
+  /// Searches workspace symbols matching the provided query string.
+  ///
+  /// - Parameters:
+  ///   - query: Search string forwarded to SourceKit-LSP.
+  ///   - limit: Maximum number of results to return.
+  ///   - enrich: When `true`, fetches signature and documentation for each result.
+  /// - Returns: An array of matching symbols across the workspace.
+  public func searchSymbols(matching query: String, limit: Int = 20, enrich: Bool = false) async throws
+    -> [SymbolSearchResult] {
+    guard limit > 0 else { return [] }
+
+    let connection = try await ensureSessionReady()
+    let retryPolicy = makeRetryPolicy()
+    let params = WorkspaceSymbolParams(query: query)
+
+    guard let response = try await performWithRetries(
+      maxAttempts: retryPolicy.maxAttempts,
+      delayNanoseconds: retryPolicy.delayNanoseconds,
+      { try await connection.workspaceSymbol(params) },
+    ) else {
+      return []
+    }
+
+    let mapped = mapWorkspaceSymbolResponse(response).prefix(limit).map(\.self)
+    guard enrich else { return Array(mapped) }
+
+    var enrichedResults: [SymbolSearchResult] = []
+    for result in mapped {
+      if let enriched = try await enrichResult(result, connection: connection) {
+        enrichedResults.append(enriched)
+      } else {
+        enrichedResults.append(result)
+      }
+    }
+    return enrichedResults
+  }
+
   /// Gracefully stops the LSP session.
   public func shutdown() async {
     await sourceKitService.shutdown()
@@ -314,5 +351,133 @@ public actor LspSession {
     case .xcodeProject, .xcodeWorkspace:
       (maxAttempts: 5, delayNanoseconds: 350_000_000)
     }
+  }
+
+  /// Converts a workspace symbol response into search results.
+  ///
+  /// - Parameter response: Raw workspace symbol response from SourceKit-LSP.
+  /// - Returns: Flattened list of symbol search results.
+  private func mapWorkspaceSymbolResponse(_ response: WorkspaceSymbolResponse) -> [SymbolSearchResult] {
+    guard let response else { return [] }
+
+    switch response {
+    case let .optionA(informationArray):
+      return informationArray.map(mapSymbolInformation)
+    case let .optionB(symbolArray):
+      return symbolArray.compactMap(mapWorkspaceSymbol)
+    }
+  }
+
+  /// Converts `SymbolInformation` into `SymbolSearchResult`.
+  private func mapSymbolInformation(_ info: SymbolInformation) -> SymbolSearchResult {
+    let location = try? makeLocation(info.location)
+    return SymbolSearchResult(
+      name: info.name,
+      kind: humanReadableKind(info.kind),
+      containerName: info.containerName,
+      module: nil,
+      location: location,
+      documentURI: location?.uri,
+      signature: nil,
+      documentation: nil,
+    )
+  }
+
+  /// Converts `WorkspaceSymbol` into `SymbolSearchResult`, handling both location shapes.
+  private func mapWorkspaceSymbol(_ symbol: WorkspaceSymbol) -> SymbolSearchResult? {
+    let location: SymbolInfo.Location?
+    let documentURI: URL?
+    if let locationOption = symbol.location {
+      switch locationOption {
+      case let .optionA(lspLocation):
+        let resolvedLocation = try? makeLocation(lspLocation)
+        location = resolvedLocation
+        documentURI = resolvedLocation?.uri
+      case let .optionB(textDocumentIdentifier):
+        // The server provided a document URI without a range; surface that we lack precise position data.
+        location = nil
+        documentURI = URL(string: textDocumentIdentifier.uri) ?? URL(fileURLWithPath: textDocumentIdentifier.uri)
+      }
+    } else {
+      location = nil
+      documentURI = nil
+    }
+
+    return SymbolSearchResult(
+      name: symbol.name,
+      kind: humanReadableKind(symbol.kind),
+      containerName: symbol.containerName,
+      module: nil,
+      location: location,
+      documentURI: documentURI,
+      signature: nil,
+      documentation: nil,
+    )
+  }
+
+  /// Converts an LSP symbol kind into a human-readable description.
+  private func humanReadableKind(_ kind: SymbolKind) -> String {
+    switch kind {
+    case .file: "file"
+    case .module: "module"
+    case .namespace: "namespace"
+    case .package: "package"
+    case .class: "class"
+    case .method: "method"
+    case .property: "property"
+    case .field: "field"
+    case .constructor: "initializer"
+    case .enum: "enum"
+    case .interface: "protocol"
+    case .function: "function"
+    case .variable: "variable"
+    case .constant: "constant"
+    case .string: "string"
+    case .number: "number"
+    case .boolean: "boolean"
+    case .array: "array"
+    case .object: "object"
+    case .key: "key"
+    case .null: "null"
+    case .enumMember: "enum member"
+    case .struct: "struct"
+    case .event: "event"
+    case .operator: "operator"
+    case .typeParameter: "type parameter"
+    }
+  }
+
+  /// Enriches a search result with signature, documentation, and precise location when possible.
+  ///
+  /// - Parameters:
+  ///   - result: The base search result to enrich.
+  ///   - connection: Active SourceKit-LSP connection.
+  /// - Returns: An enriched result or `nil` when enrichment is not possible.
+  private func enrichResult(_ result: SymbolSearchResult, connection: InitializingServer) async throws
+    -> SymbolSearchResult? {
+    guard let location = result.location, location.uri.isFileURL else { return nil }
+
+    let line = location.startLine
+    let column = max(location.startCharacter, 1)
+    let filePath = location.uri.path
+
+    let definitionInfo = try? await fetchDefinition(connection: connection, file: filePath, line: line, column: column)
+    let hoverInfo = try? await fetchHover(connection: connection, file: filePath, line: line, column: column)
+
+    let mergedLocation = definitionInfo?.definition ?? result.location
+    let signature = hoverInfo?.signature ?? definitionInfo?.signature ?? result.signature
+    let documentation = hoverInfo?.documentation ?? result.documentation
+    let module = definitionInfo?.module ?? result.module
+
+    return SymbolSearchResult(
+      name: result.name,
+      kind: result.kind,
+      containerName: result.containerName,
+      module: module,
+      location: mergedLocation,
+      documentURI: mergedLocation?.uri ?? result.documentURI,
+      signature: signature,
+      documentation: documentation,
+    )
   }
 }

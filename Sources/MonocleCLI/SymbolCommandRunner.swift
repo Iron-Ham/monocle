@@ -17,10 +17,10 @@ enum SymbolCommandRunner {
   static func perform(method: DaemonMethod, workspace: String?, file: String, line: Int,
                       column: Int) async throws -> SymbolInfo {
     let resolvedFile = FilePathResolver.absolutePath(for: file)
-    let resolvedWorkspace = workspace.map { FilePathResolver.absolutePath(for: $0) }
+    let workspaceDescription = try resolveWorkspace(for: workspace, sourceFilePath: resolvedFile)
 
     let parameters = DaemonRequestParameters(
-      workspaceRootPath: resolvedWorkspace,
+      workspaceRootPath: workspaceDescription.rootPath,
       filePath: resolvedFile,
       line: line,
       column: column,
@@ -30,10 +30,6 @@ enum SymbolCommandRunner {
       return daemonResult
     }
 
-    let workspaceDescription = try WorkspaceLocator.locate(
-      explicitWorkspacePath: resolvedWorkspace,
-      filePath: resolvedFile,
-    )
     let session = LspSession(workspace: workspaceDescription)
     switch method {
     case .inspect:
@@ -42,7 +38,7 @@ enum SymbolCommandRunner {
       return try await session.definition(file: resolvedFile, line: line, column: column)
     case .hover:
       return try await session.hover(file: resolvedFile, line: line, column: column)
-    case .shutdown, .ping, .status:
+    case .symbolSearch, .shutdown, .ping, .status:
       throw MonocleError.ioError("Unsupported method for CLI command.")
     }
   }
@@ -55,6 +51,8 @@ enum SymbolCommandRunner {
     switch error.code {
     case "workspace_not_found":
       MonocleError.workspaceNotFound
+    case "workspace_ambiguous":
+      MonocleError.workspaceAmbiguous(options: [])
     case "symbol_not_found":
       MonocleError.symbolNotFound
     case "lsp_launch_failed":
@@ -69,11 +67,29 @@ enum SymbolCommandRunner {
       MonocleError.ioError(error.message)
     }
   }
+
+  /// Resolves the workspace path, falling back to auto-detection when no workspace argument is provided.
+  ///
+  /// - Parameters:
+  ///   - workspaceArgument: Optional workspace path supplied by the user.
+  ///   - sourceFilePath: Absolute path of the source file involved in the request.
+  /// - Returns: The detected workspace description.
+  private static func resolveWorkspace(for workspaceArgument: String?, sourceFilePath: String) throws -> Workspace {
+    if let workspaceArgument {
+      let absoluteWorkspacePath = FilePathResolver.absolutePath(for: workspaceArgument)
+      return try WorkspaceLocator.locate(
+        explicitWorkspacePath: absoluteWorkspacePath,
+        filePath: absoluteWorkspacePath,
+      )
+    }
+
+    return try WorkspaceLocator.locate(explicitWorkspacePath: nil, filePath: sourceFilePath)
+  }
 }
 
 /// Handles talking to the daemon, including launching it on demand when it is not running.
-private enum AutomaticDaemonLauncher {
-  private static let supportedMethods: Set<DaemonMethod> = [.inspect, .definition, .hover]
+enum AutomaticDaemonLauncher {
+  private static let supportedMethods: Set<DaemonMethod> = [.inspect, .definition, .hover, .symbolSearch]
   private static let readinessTimeoutSeconds: TimeInterval = 5
 
   /// Sends the request to the daemon, launching it first if needed.
@@ -100,6 +116,35 @@ private enum AutomaticDaemonLauncher {
       throw SymbolCommandRunner.mapDaemonError(error)
     }
     throw MonocleError.ioError("Daemon returned an unexpected response.")
+  }
+
+  /// Sends a workspace symbol search request to the daemon when available.
+  ///
+  /// - Parameter parameters: Request payload containing workspace and search details.
+  /// - Returns: Search results when handled by the daemon, or `nil` when the daemon is unavailable.
+  static func sendSymbolSearch(parameters: DaemonRequestParameters) async throws -> [SymbolSearchResult]? {
+    guard supportedMethods.contains(.symbolSearch) else { return nil }
+
+    let socketURL = DaemonSocketConfiguration.defaultSocketURL
+    let daemonClient = DaemonClient(socketURL: socketURL, requestTimeout: readinessTimeoutSeconds)
+
+    guard await ensureDaemonIsReady(using: daemonClient, socketURL: socketURL) else {
+      return nil
+    }
+
+    let response = try await daemonClient.send(method: .symbolSearch, parameters: parameters)
+    // Older daemons may not understand this method; fall back to local execution when no results are present.
+    if let results = response.symbolResults {
+      return results
+    }
+    if let error = response.error {
+      if error.code == "unsupported_method" {
+        return nil
+      }
+      throw SymbolCommandRunner.mapDaemonError(error)
+    }
+    // If we receive a non-error, non-result response (e.g., from an older daemon), skip daemon handling.
+    return nil
   }
 
   /// Checks whether the daemon is reachable, starting it if necessary.

@@ -130,6 +130,7 @@ Example JSON output:
 - `inspect` — get definition and hover information together
 - `definition` — get just the definition location and snippet
 - `hover` — get just the signature and documentation
+- `symbol` — search workspace symbols by name (uses `workspace/symbol`)
 - `serve` — start the persistent daemon
 - `status` — show daemon socket, idle timeout, and active LSP sessions
 - `stop` — stop the daemon
@@ -140,6 +141,11 @@ Common options for symbol commands:
 - `--file /path/to/File.swift` – source file containing the symbol
 - `--line <int>` and `--column <int>` – one-based position of the symbol
 - `--json` – output pretty-printed JSON instead of text
+
+`symbol` options:
+- `--query <string>` – search term (required)
+- `--limit <int>` – cap results (default: 5)
+- `--enrich` – fetch signature, documentation, and precise location for each result
 
 ## Daemon mode
 

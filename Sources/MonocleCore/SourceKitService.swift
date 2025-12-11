@@ -83,8 +83,26 @@ public actor SourceKitService {
       hover: HoverClientCapabilities(dynamicRegistration: false, contentFormat: [.markdown, .plaintext]),
       definition: DefinitionClientCapabilities(dynamicRegistration: false, linkSupport: true),
     )
+    let workspaceCapabilities = ClientCapabilities.Workspace(
+      applyEdit: false,
+      workspaceEdit: nil,
+      didChangeConfiguration: nil,
+      didChangeWatchedFiles: nil,
+      symbol: WorkspaceSymbolClientCapabilities(
+        dynamicRegistration: false,
+        symbolKind: nil,
+        tagSupport: nil,
+        resolveSupport: [],
+      ),
+      executeCommand: nil,
+      workspaceFolders: true,
+      configuration: nil,
+      semanticTokens: nil,
+      codeLens: nil,
+      fileOperations: nil,
+    )
     return ClientCapabilities(
-      workspace: nil,
+      workspace: workspaceCapabilities,
       textDocument: textDocumentCapabilities,
       window: nil,
       general: nil,

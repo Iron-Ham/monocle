@@ -6,6 +6,8 @@ import Foundation
 public enum MonocleError: Error {
   /// A workspace root could not be located for the provided file.
   case workspaceNotFound
+  /// Multiple candidate workspaces were found; an explicit choice is required.
+  case workspaceAmbiguous(options: [String])
   /// SourceKit-LSP failed to launch, carrying the underlying description.
   case lspLaunchFailed(String)
   /// SourceKit-LSP launched but did not complete initialization.
@@ -24,6 +26,8 @@ extension MonocleError: LocalizedError {
     switch self {
     case .workspaceNotFound:
       "A Swift package or Xcode workspace could not be found for the provided file path."
+    case let .workspaceAmbiguous(options):
+      "Multiple workspace candidates were found: \(options.joined(separator: ", ")). Please pass --workspace to select one."
     case let .lspLaunchFailed(message):
       "SourceKit-LSP failed to launch: \(message)"
     case let .lspInitializationFailed(message):

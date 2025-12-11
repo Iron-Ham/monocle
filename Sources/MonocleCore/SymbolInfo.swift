@@ -83,3 +83,54 @@ public struct SymbolInfo: Codable, Sendable {
     self.documentation = documentation
   }
 }
+
+/// Represents a single hit returned by a workspace symbol search.
+public struct SymbolSearchResult: Codable, Sendable {
+  /// Symbol display name reported by SourceKit-LSP.
+  public var name: String
+  /// Human-readable symbol kind such as "class" or "function".
+  public var kind: String?
+  /// Optional container name provided by the server (e.g. enclosing type).
+  public var containerName: String?
+  /// Optional module that declares the symbol.
+  public var module: String?
+  /// Location information for the symbol if available.
+  public var location: SymbolInfo.Location?
+  /// Document URI when the server did not provide a precise range.
+  public var documentURI: URL?
+  /// Optional rendered signature when enrichment is requested.
+  public var signature: String?
+  /// Optional documentation gathered during enrichment.
+  public var documentation: String?
+
+  /// Creates a symbol search result.
+  ///
+  /// - Parameters:
+  ///   - name: Symbol display name.
+  ///   - kind: Human-readable symbol kind.
+  ///   - containerName: Optional enclosing container name.
+  ///   - module: Optional module name.
+  ///   - location: Source location describing the symbol.
+  ///   - documentURI: Document URI when the server does not supply a range.
+  ///   - signature: Optional rendered signature.
+  ///   - documentation: Optional documentation comment text.
+  public init(
+    name: String,
+    kind: String? = nil,
+    containerName: String? = nil,
+    module: String? = nil,
+    location: SymbolInfo.Location? = nil,
+    documentURI: URL? = nil,
+    signature: String? = nil,
+    documentation: String? = nil,
+  ) {
+    self.name = name
+    self.kind = kind
+    self.containerName = containerName
+    self.module = module
+    self.location = location
+    self.documentURI = documentURI
+    self.signature = signature
+    self.documentation = documentation
+  }
+}
