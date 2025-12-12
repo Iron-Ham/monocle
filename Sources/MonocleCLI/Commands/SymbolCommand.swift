@@ -16,7 +16,7 @@ struct SymbolCommand: AsyncParsableCommand {
   /// Optional workspace root path that overrides auto-detection.
   @Option(
     name: [.customShort("w"), .long],
-    help: "Workspace root (Package.swift or Xcode project/workspace file).",
+    help: "Workspace root path (Package.swift or Xcode project/workspace directory).",
   )
   var workspace: String?
 

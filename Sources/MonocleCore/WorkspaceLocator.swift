@@ -48,6 +48,17 @@ public enum WorkspaceLocator {
     let url = URL(fileURLWithPath: path)
     let fileManager = FileManager.default
 
+    // Treat explicit Xcode bundle paths as the workspace selection itself.
+    // Xcode project bundles contain an internal `project.xcworkspace`; scanning inside would
+    // incorrectly classify the bundle as a workspace rooted at the project package.
+    if url.pathExtension == "xcodeproj" {
+      return Workspace(rootPath: url.deletingLastPathComponent().path, kind: .xcodeProject)
+    }
+
+    if url.pathExtension == "xcworkspace" {
+      return Workspace(rootPath: url.deletingLastPathComponent().path, kind: .xcodeWorkspace)
+    }
+
     if isDirectory(path: path, fileManager: fileManager) {
       if let workspace = try locateXcodeWorkspace(in: url, fileManager: fileManager) {
         return workspace
@@ -58,14 +69,6 @@ public enum WorkspaceLocator {
       if fileManager.fileExists(atPath: url.appendingPathComponent("Package.swift").path) {
         return Workspace(rootPath: url.path, kind: .swiftPackage)
       }
-    }
-
-    if url.pathExtension == "xcodeproj" {
-      return Workspace(rootPath: url.deletingLastPathComponent().path, kind: .xcodeProject)
-    }
-
-    if url.pathExtension == "xcworkspace" {
-      return Workspace(rootPath: url.deletingLastPathComponent().path, kind: .xcodeWorkspace)
     }
 
     if fileManager.fileExists(atPath: url.appendingPathComponent("Package.swift").path) {
@@ -95,6 +98,10 @@ public enum WorkspaceLocator {
   /// - Returns: A `Workspace` when exactly one workspace is present, or `nil` when absent.
   /// - Throws: `MonocleError.workspaceAmbiguous` when multiple workspaces are found.
   private static func locateXcodeWorkspace(in directory: URL, fileManager: FileManager) throws -> Workspace? {
+    if directory.pathExtension == "xcodeproj" || directory.pathExtension == "xcworkspace" {
+      return nil
+    }
+
     let workspaces = matches(in: directory, withExtension: "xcworkspace", fileManager: fileManager)
 
     if workspaces.count > 1 {
@@ -102,6 +109,7 @@ public enum WorkspaceLocator {
     }
 
     guard let workspacePath = workspaces.first else { return nil }
+
     return Workspace(rootPath: workspacePath.deletingLastPathComponent().path, kind: .xcodeWorkspace)
   }
 
@@ -113,6 +121,10 @@ public enum WorkspaceLocator {
   /// - Returns: A `Workspace` when exactly one project is present, or `nil` when absent.
   /// - Throws: `MonocleError.workspaceAmbiguous` when multiple projects are found.
   private static func locateXcodeProject(in directory: URL, fileManager: FileManager) throws -> Workspace? {
+    if directory.pathExtension == "xcodeproj" || directory.pathExtension == "xcworkspace" {
+      return nil
+    }
+
     let projects = matches(in: directory, withExtension: "xcodeproj", fileManager: fileManager)
 
     if projects.count > 1 {
@@ -120,6 +132,7 @@ public enum WorkspaceLocator {
     }
 
     guard let projectPath = projects.first else { return nil }
+
     return Workspace(rootPath: projectPath.deletingLastPathComponent().path, kind: .xcodeProject)
   }
 
@@ -147,6 +160,7 @@ public enum WorkspaceLocator {
   private static func isDirectory(path: String, fileManager: FileManager) -> Bool {
     var isDirectory: ObjCBool = false
     guard fileManager.fileExists(atPath: path, isDirectory: &isDirectory) else { return false }
+
     return isDirectory.boolValue
   }
 }
