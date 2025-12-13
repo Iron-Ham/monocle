@@ -1,3 +1,8 @@
+## [1.2.1]
+
+### Fixed
+- **Enriched symbol search timeouts**: `monocle symbol --enrich` no longer times out due to daemon socket request time limits; daemon requests now use operation-appropriate timeouts and the socket read timeout is enforced reliably.
+
 ## [1.2.0]
 
 ### Added

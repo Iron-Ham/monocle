@@ -90,7 +90,11 @@ enum SymbolCommandRunner {
 /// Handles talking to the daemon, including launching it on demand when it is not running.
 enum AutomaticDaemonLauncher {
   private static let supportedMethods: Set<DaemonMethod> = [.inspect, .definition, .hover, .symbolSearch]
-  private static let readinessTimeoutSeconds: TimeInterval = 5
+  private static let daemonReadinessTimeoutSeconds: TimeInterval = 2
+  private static let daemonDefaultRequestTimeoutSeconds: TimeInterval = 30
+  private static let daemonEnrichedSymbolSearchBaseTimeoutSeconds: TimeInterval = 45
+  private static let daemonEnrichedSymbolSearchPerResultTimeoutSeconds: TimeInterval = 3
+  private static let daemonEnrichedSymbolSearchMaximumTimeoutSeconds: TimeInterval = 180
 
   /// Sends the request to the daemon, launching it first if needed.
   ///
@@ -102,13 +106,23 @@ enum AutomaticDaemonLauncher {
     guard supportedMethods.contains(method) else { return nil }
 
     let socketURL = DaemonSocketConfiguration.defaultSocketURL
-    let daemonClient = DaemonClient(socketURL: socketURL, requestTimeout: readinessTimeoutSeconds)
+    let readinessClient = DaemonClient(socketURL: socketURL, requestTimeout: daemonReadinessTimeoutSeconds)
 
-    guard await ensureDaemonIsReady(using: daemonClient, socketURL: socketURL) else {
+    guard await ensureDaemonIsReady(using: readinessClient, socketURL: socketURL) else {
       return nil
     }
 
-    let response = try await daemonClient.send(method: method, parameters: parameters)
+    let requestClient = DaemonClient(
+      socketURL: socketURL,
+      requestTimeout: requestTimeoutSeconds(for: method, parameters: parameters),
+    )
+
+    let response: DaemonResponse
+    do {
+      response = try await requestClient.send(method: method, parameters: parameters)
+    } catch {
+      return nil
+    }
     if let result = response.result {
       return result
     }
@@ -126,13 +140,23 @@ enum AutomaticDaemonLauncher {
     guard supportedMethods.contains(.symbolSearch) else { return nil }
 
     let socketURL = DaemonSocketConfiguration.defaultSocketURL
-    let daemonClient = DaemonClient(socketURL: socketURL, requestTimeout: readinessTimeoutSeconds)
+    let readinessClient = DaemonClient(socketURL: socketURL, requestTimeout: daemonReadinessTimeoutSeconds)
 
-    guard await ensureDaemonIsReady(using: daemonClient, socketURL: socketURL) else {
+    guard await ensureDaemonIsReady(using: readinessClient, socketURL: socketURL) else {
       return nil
     }
 
-    let response = try await daemonClient.send(method: .symbolSearch, parameters: parameters)
+    let requestClient = DaemonClient(
+      socketURL: socketURL,
+      requestTimeout: requestTimeoutSeconds(for: .symbolSearch, parameters: parameters),
+    )
+
+    let response: DaemonResponse
+    do {
+      response = try await requestClient.send(method: .symbolSearch, parameters: parameters)
+    } catch {
+      return nil
+    }
     // Older daemons may not understand this method; fall back to local execution when no results are present.
     if let results = response.symbolResults {
       return results
@@ -145,6 +169,21 @@ enum AutomaticDaemonLauncher {
     }
     // If we receive a non-error, non-result response (e.g., from an older daemon), skip daemon handling.
     return nil
+  }
+
+  /// Computes a request timeout suitable for the requested daemon method.
+  ///
+  /// Longer-running operations (notably enriched symbol search) need a higher timeout than quick health checks.
+  private static func requestTimeoutSeconds(for method: DaemonMethod,
+                                            parameters: DaemonRequestParameters) -> TimeInterval {
+    if method == .symbolSearch, parameters.enrich == true {
+      let limit = max(parameters.limit ?? 20, 1)
+      let computedTimeout = daemonEnrichedSymbolSearchBaseTimeoutSeconds
+        + (TimeInterval(limit) * daemonEnrichedSymbolSearchPerResultTimeoutSeconds)
+      return min(computedTimeout, daemonEnrichedSymbolSearchMaximumTimeoutSeconds)
+    }
+
+    return daemonDefaultRequestTimeoutSeconds
   }
 
   /// Checks whether the daemon is reachable, starting it if necessary.
@@ -185,7 +224,7 @@ enum AutomaticDaemonLauncher {
   /// - Parameter client: Client used for probing readiness.
   /// - Returns: `true` when the daemon responds before the timeout.
   private static func waitForDaemonReadiness(using client: DaemonClient) async -> Bool {
-    let deadline = Date().addingTimeInterval(readinessTimeoutSeconds)
+    let deadline = Date().addingTimeInterval(daemonReadinessTimeoutSeconds)
 
     while Date() < deadline {
       if await daemonResponds(using: client) {
