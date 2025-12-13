@@ -122,6 +122,11 @@ public actor SourceKitService {
     let binaryPath: String
     var arguments: [String] = []
     var sourceKitArguments: [String] = []
+    let shouldUseBuildServer = shouldPreferBuildServer(for: workspace)
+    let shouldUseSwiftPMBuildSystem = shouldUseSwiftPMBuildSystem(
+      for: workspace,
+      shouldUseBuildServer: shouldUseBuildServer,
+    )
 
     if let explicitSourceKit = toolchain?.sourceKitPath {
       binaryPath = explicitSourceKit
@@ -132,15 +137,14 @@ public actor SourceKitService {
 
     switch workspace.kind {
     case .swiftPackage:
-      sourceKitArguments.append(contentsOf: ["--default-workspace-type", "swiftPM"])
-      let scratchPath = URL(fileURLWithPath: workspace.rootPath).appendingPathComponent(".sourcekit-lsp-scratch").path
-      sourceKitArguments.append(contentsOf: ["--scratch-path", scratchPath])
-      let buildPath = URL(fileURLWithPath: workspace.rootPath).appendingPathComponent(".build").path
-      sourceKitArguments.append(contentsOf: ["--build-path", buildPath])
-      sourceKitArguments.append(contentsOf: ["--configuration", "debug"])
+      appendSwiftPMArguments(workspaceRootPath: workspace.rootPath, arguments: &sourceKitArguments)
     case .xcodeProject, .xcodeWorkspace:
-      if shouldPreferBuildServer(for: workspace) {
+      if shouldUseBuildServer {
         sourceKitArguments.append(contentsOf: ["--default-workspace-type", "buildServer"])
+      } else if shouldUseSwiftPMBuildSystem {
+        appendSwiftPMArguments(workspaceRootPath: workspace.rootPath, arguments: &sourceKitArguments)
+      } else {
+        throw MonocleError.buildServerConfigurationMissing(workspaceRootPath: workspace.rootPath)
       }
     }
 
@@ -148,7 +152,7 @@ public actor SourceKitService {
     if let developerDirectory = toolchain?.developerDirectory {
       environment["DEVELOPER_DIR"] = developerDirectory
     }
-    if workspace.kind == .swiftPackage {
+    if shouldUseSwiftPMBuildSystem {
       environment["HOME"] = workspace.rootPath
       environment["SWIFTPM_CACHE_PATH"] = URL(fileURLWithPath: workspace.rootPath)
         .appendingPathComponent(".swiftpm-cache").path
@@ -160,6 +164,30 @@ public actor SourceKitService {
       environment: environment,
       currentDirectoryURL: URL(fileURLWithPath: workspace.rootPath),
     )
+  }
+
+  private func appendSwiftPMArguments(workspaceRootPath: String, arguments: inout [String]) {
+    arguments.append(contentsOf: ["--default-workspace-type", "swiftPM"])
+    let scratchPath = URL(fileURLWithPath: workspaceRootPath).appendingPathComponent(".sourcekit-lsp-scratch").path
+    arguments.append(contentsOf: ["--scratch-path", scratchPath])
+    let buildPath = URL(fileURLWithPath: workspaceRootPath).appendingPathComponent(".build").path
+    arguments.append(contentsOf: ["--build-path", buildPath])
+    arguments.append(contentsOf: ["--configuration", "debug"])
+  }
+
+  private func shouldUseSwiftPMBuildSystem(for workspace: Workspace, shouldUseBuildServer: Bool) -> Bool {
+    if workspace.kind == .swiftPackage { return true }
+    if shouldUseBuildServer { return false }
+
+    let manifestURL = URL(fileURLWithPath: workspace.rootPath).appendingPathComponent("Package.swift")
+    guard let contents = try? String(contentsOf: manifestURL) else { return false }
+
+    let hasAnyTargetDeclaration = contents.contains(".target(")
+      || contents.contains(".executableTarget(")
+      || contents.contains(".testTarget(")
+      || contents.contains(".macro(")
+
+    return hasAnyTargetDeclaration
   }
 
   /// Determines whether a non-SwiftPM workspace should prefer the build server protocol.

@@ -266,7 +266,15 @@ extension DaemonErrorPayload {
     case .workspaceNotFound:
       DaemonErrorPayload(code: "workspace_not_found", message: "Workspace could not be located for the provided file.")
     case let .workspaceAmbiguous(options):
-      DaemonErrorPayload(code: "workspace_ambiguous", message: "Multiple workspace candidates were found: \(options.joined(separator: ", ")).")
+      DaemonErrorPayload(
+        code: "workspace_ambiguous",
+        message: "Multiple workspace candidates were found: \(options.joined(separator: ", ")).",
+      )
+    case let .buildServerConfigurationMissing(workspaceRootPath):
+      DaemonErrorPayload(
+        code: "build_server_configuration_missing",
+        message: "No buildServer.json was found in the workspace root (\(workspaceRootPath)). Generate one for Xcode projects/workspaces before using monocle.",
+      )
     case let .lspLaunchFailed(description):
       DaemonErrorPayload(code: "lsp_launch_failed", message: description)
     case let .lspInitializationFailed(description):

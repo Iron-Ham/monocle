@@ -8,6 +8,8 @@ public enum MonocleError: Error {
   case workspaceNotFound
   /// Multiple candidate workspaces were found; an explicit choice is required.
   case workspaceAmbiguous(options: [String])
+  /// An Xcode workspace/project needs a build server configuration, but none was found.
+  case buildServerConfigurationMissing(workspaceRootPath: String)
   /// SourceKit-LSP failed to launch, carrying the underlying description.
   case lspLaunchFailed(String)
   /// SourceKit-LSP launched but did not complete initialization.
@@ -28,6 +30,18 @@ extension MonocleError: LocalizedError {
       "A Swift package or Xcode workspace could not be found for the provided file path."
     case let .workspaceAmbiguous(options):
       "Multiple workspace candidates were found: \(options.joined(separator: ", ")). Please pass --workspace to select one."
+    case let .buildServerConfigurationMissing(workspaceRootPath):
+      """
+      No build server configuration was found for this Xcode workspace/project.
+
+      Generate a `buildServer.json` in the workspace root and try again.
+      For example (Xcode Build Server):
+
+        xcode-build-server config -project <YourProject>.xcodeproj -scheme <YourScheme>
+        xcode-build-server config -workspace <YourWorkspace>.xcworkspace -scheme <YourScheme>
+
+      Workspace root: \(workspaceRootPath)
+      """
     case let .lspLaunchFailed(message):
       "SourceKit-LSP failed to launch: \(message)"
     case let .lspInitializationFailed(message):

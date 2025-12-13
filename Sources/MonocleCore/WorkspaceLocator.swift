@@ -48,6 +48,10 @@ public enum WorkspaceLocator {
     let url = URL(fileURLWithPath: path)
     let fileManager = FileManager.default
 
+    if url.lastPathComponent == "Package.swift" {
+      return Workspace(rootPath: url.deletingLastPathComponent().path, kind: .swiftPackage)
+    }
+
     // Treat explicit Xcode bundle paths as the workspace selection itself.
     // Xcode project bundles contain an internal `project.xcworkspace`; scanning inside would
     // incorrectly classify the bundle as a workspace rooted at the project package.

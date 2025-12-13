@@ -48,12 +48,45 @@ cp .build/release/monocle /usr/local/bin/
 - macOS 13 or newer
 - Xcode or a Swift toolchain that provides `sourcekit-lsp` on your PATH (monocle uses `xcrun sourcekit-lsp`)
 
-### Xcode projects: generate `buildServer.json`
+### Xcode projects/workspaces: `buildServer.json` is required
 
-For Xcode workspaces or projects, SourceKit-LSP works best when a `buildServer.json` file is present in the workspace root. Generate it with the `xcode-build-server` tool before using monocle:
+For Xcode projects/workspaces, monocle relies on SourceKit-LSP’s *build server* integration to get the full compile settings (SDK, search paths, SwiftPM checkouts, etc.). **Without a `buildServer.json` in your workspace root, monocle will not be able to resolve symbols from dependencies/SDK frameworks reliably.**
+
+#### 1) Install `xcode-build-server`
 
 ```bash
+brew install xcode-build-server
+```
+
+> [!TIP]
+> Learn more about `xcode-build-server`: https://github.com/SolaWing/xcode-build-server
+
+#### 2) Build the project in Xcode at least once
+
+Before generating `buildServer.json`, open the project/workspace in Xcode and build the scheme you intend to use (this also resolves SwiftPM packages).
+
+You may need to rebuild after:
+- Changing Xcode/SDK/toolchains
+- Changing package dependencies
+- Changing build settings that affect compile arguments
+
+If you regenerate `buildServer.json`, restart monocle’s daemon so it picks up the new configuration:
+
+```bash
+# Daemon will automatically restart with your next command
+monocle stop
+```
+
+#### 3) Generate `buildServer.json` in the workspace root
+
+```bash
+cd /path/to/your/workspace/root
+
+# If you have a .xcworkspace:
 xcode-build-server config -workspace MyApp.xcworkspace -scheme MyApp
+
+# If you have a .xcodeproj:
+xcode-build-server config -project MyApp.xcodeproj -scheme MyApp
 ```
 
 Example `buildServer.json`:
@@ -154,6 +187,7 @@ Common options for symbol commands:
 ## Daemon mode
 
 Speed up repeated lookups by keeping SourceKit-LSP alive:
+
 ```bash
 monocle serve --idle-timeout 600
 ```
@@ -168,7 +202,7 @@ Human-readable output prints the symbol name, kind, module, signature, definitio
 
 ## Troubleshooting
 
-- Make sure `sourcekit-lsp` works by running `xcrun sourcekit-lsp --version` manually. If it fails, install Xcode or the Swift toolchain.
+- Make sure `sourcekit-lsp` works by running `xcrun sourcekit-lsp --help`. If it fails, install Xcode or the Swift toolchain.
 - For SwiftPM workspaces, monocle creates a scratch directory at `.sourcekit-lsp-scratch` under the workspace root. You can safely remove it if you need a clean slate.
 - If monocle can't find your workspace, use `--workspace` to point directly at your package or Xcode project.
 
