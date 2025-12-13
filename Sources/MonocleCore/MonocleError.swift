@@ -29,7 +29,7 @@ extension MonocleError: LocalizedError {
     case .workspaceNotFound:
       "A Swift package or Xcode workspace could not be found for the provided file path."
     case let .workspaceAmbiguous(options):
-      "Multiple workspace candidates were found: \(options.joined(separator: ", ")). Please pass --workspace to select one."
+      "Multiple workspace candidates were found: \(options.joined(separator: ", ")). Please pass --workspace or --project to select one."
     case let .buildServerConfigurationMissing(workspaceRootPath):
       """
       No build server configuration was found for this Xcode workspace/project.

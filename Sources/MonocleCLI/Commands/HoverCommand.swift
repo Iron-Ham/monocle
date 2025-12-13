@@ -15,8 +15,8 @@ struct HoverCommand: AsyncParsableCommand {
 
   /// Optional workspace root path that overrides auto-detection.
   @Option(
-    name: [.customShort("w"), .long],
-    help: "Workspace root path (Package.swift or Xcode project/workspace directory).",
+    name: [.customShort("w"), .long, .customLong("project")],
+    help: "Workspace root path (Package.swift, .xcodeproj, or .xcworkspace). Alias: --project.",
   )
   var workspace: String?
 

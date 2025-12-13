@@ -26,7 +26,7 @@ A read-only CLI for Swift symbol lookup via SourceKit-LSP, designed specifically
 - **Everything in one call:** `monocle inspect` returns both definition and docs together—ideal for grabbing signatures and docstrings from third-party packages or unfamiliar frameworks.
 - **Fast lookups across dependencies:** Resolve symbols from your dependencies (SwiftPM or Xcode) without firing up an IDE. Great when agents need the actual implementation file and docstring.
 - **Keep it warm:** Optional `monocle serve` keeps SourceKit-LSP running to eliminate cold starts during repeated agent calls.
-- **Workspace aware:** Automatically finds your `Package.swift`, `.xcodeproj`, or `.xcworkspace` when you don't specify `--workspace`.
+- **Workspace aware:** Automatically finds your `Package.swift`, `.xcodeproj`, or `.xcworkspace` when you don't specify `--workspace` (or `--project`).
 - **Works everywhere:** Supports both Swift packages and Xcode projects/workspaces.
 
 ## Installation
@@ -176,7 +176,7 @@ Example JSON output:
 - `--version` — print monocle and SourceKit-LSP versions
 
 Common options for symbol commands:
-- `--workspace /path/to/root` (optional) – override automatic workspace detection
+- `--workspace /path/to/root` (optional) – override automatic workspace detection (alias: `--project`)
 - `--file /path/to/File.swift` – source file containing the symbol
 - `--line <int>` and `--column <int>` – one-based position of the symbol
 - `--json` – output pretty-printed JSON instead of text
@@ -206,7 +206,7 @@ Human-readable output prints the symbol name, kind, module, signature, definitio
 
 - Make sure `sourcekit-lsp` works by running `xcrun sourcekit-lsp --help`. If it fails, install Xcode or the Swift toolchain.
 - For SwiftPM workspaces, monocle creates a scratch directory at `.sourcekit-lsp-scratch` under the workspace root. You can safely remove it if you need a clean slate.
-- If monocle can't find your workspace, use `--workspace` to point directly at your package or Xcode project.
+- If monocle can't find your workspace, use `--workspace` (or `--project`) to point directly at your package or Xcode project.
 
 ## 🙏 Acknowledgments
 

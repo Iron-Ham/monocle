@@ -15,8 +15,8 @@ struct SymbolCommand: AsyncParsableCommand {
 
   /// Optional workspace root path that overrides auto-detection.
   @Option(
-    name: [.customShort("w")],
-    help: "Workspace root path (Package.swift or Xcode project/workspace directory).",
+    name: [.customShort("w"), .long, .customLong("project")],
+    help: "Workspace root path (Package.swift, .xcodeproj, or .xcworkspace). Alias: --project.",
   )
   var workspace: String?
 
@@ -42,7 +42,7 @@ struct SymbolCommand: AsyncParsableCommand {
     if resolvedWorkspace == nil {
       let detectedWorkspace = try WorkspaceLocator.locate(
         explicitWorkspacePath: nil,
-        filePath: FileManager.default.currentDirectoryPath
+        filePath: FileManager.default.currentDirectoryPath,
       )
       resolvedWorkspace = detectedWorkspace.rootPath
     }
@@ -61,7 +61,7 @@ struct SymbolCommand: AsyncParsableCommand {
 
     let workspaceDescription = try WorkspaceLocator.locate(
       explicitWorkspacePath: resolvedWorkspace,
-      filePath: resolvedWorkspace ?? FileManager.default.currentDirectoryPath
+      filePath: resolvedWorkspace ?? FileManager.default.currentDirectoryPath,
     )
     let session = LspSession(workspace: workspaceDescription)
     let results = try await session.searchSymbols(matching: query, limit: limit, enrich: enrich)
