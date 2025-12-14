@@ -23,6 +23,7 @@ struct MonocleCommand: AsyncParsableCommand {
         InspectCommand.self,
         DefinitionCommand.self,
         HoverCommand.self,
+        PackagesCommand.self,
         StatusCommand.self,
         ServeCommand.self,
         SymbolCommand.self,

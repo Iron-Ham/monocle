@@ -1,3 +1,8 @@
+## [1.3.0]
+
+### Added
+- **Checked-out package listing**: Added `monocle packages` to list all SwiftPM package checkouts for the current workspace, including each checkout folder path and (when present) the README path. For Xcode workspaces/projects this uses `buildServer.json`’s `build_root` to locate DerivedData `SourcePackages/checkouts`; for pure SwiftPM packages it scans `./.build/checkouts`.
+
 ## [1.2.1]
 
 ### Fixed

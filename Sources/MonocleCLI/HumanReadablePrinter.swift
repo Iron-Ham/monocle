@@ -87,4 +87,27 @@ enum HumanReadablePrinter {
       }
     }
   }
+
+  /// Prints checked-out Swift package dependencies.
+  ///
+  /// - Parameters:
+  ///   - packages: Checked-out packages to display.
+  ///   - workspace: Workspace that was scanned.
+  static func printPackageCheckouts(_ packages: [PackageCheckout], workspace: Workspace) {
+    print("Workspace: \(workspace.rootPath) [\(workspace.kind.rawValue)]")
+
+    guard packages.isEmpty == false else {
+      print("Checked-out packages: none")
+      return
+    }
+
+    print("Checked-out packages (\(packages.count)):")
+    for package in packages {
+      var line = " - \(package.packageName): \(package.checkoutPath)"
+      if let readmePath = package.readmePath {
+        line += " (README: \(readmePath))"
+      }
+      print(line)
+    }
+  }
 }

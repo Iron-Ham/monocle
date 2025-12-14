@@ -133,6 +133,7 @@ Paste this block into your AGENTS guide so coding agents know how to use monocle
  
 - Treat the `monocle` cli as your **default tool** for Swift symbol info. 
   Whenever you need the definition file, signature, parameters, or doc comment for any Swift symbol (type, class, struct, enum, method, property, etc.), call `monocle` rather than guessing or doing project-wide searches.
+- List checked-out SwiftPM dependencies (so you can open and read external packages): `monocle packages --json`
 - Resolve the symbol at a specific location: `monocle inspect --file <path> --line <line> --column <column> --json`
 - Line and column values are **1-based**, not 0-based; the column must point inside the identifier
 - Search workspace symbols by name when you only know the identifier: `monocle symbol --query "TypeOrMember" --limit 5 --json`.
@@ -170,6 +171,7 @@ Example JSON output:
 - `definition` — get just the definition location and snippet
 - `hover` — get just the signature and documentation
 - `symbol` — search workspace symbols by name (uses `workspace/symbol`)
+- `packages` — list checked-out SwiftPM dependencies (checkout paths + README paths)
 - `serve` — start the persistent daemon
 - `status` — show daemon socket, idle timeout, and active LSP sessions
 - `stop` — stop the daemon
