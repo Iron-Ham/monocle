@@ -90,6 +90,53 @@ final class PackageCheckoutLocatorTests {
     #expect(packages[0].readmePath?.hasSuffix("/SourcePackages/checkouts/RemoteDependency/ReadMe.MD") == true)
   }
 
+  @Test func xcodeWorkspaceBuildRootEndingInBuildFindsCheckoutsInParentDirectory() throws {
+    let fileManager = FileManager.default
+    let workspaceRoot = fileManager.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? fileManager.removeItem(at: workspaceRoot) }
+
+    let derivedDataRoot = fileManager.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? fileManager.removeItem(at: derivedDataRoot) }
+
+    try fileManager.createDirectory(at: workspaceRoot, withIntermediateDirectories: true)
+    try fileManager.createDirectory(at: derivedDataRoot, withIntermediateDirectories: true)
+
+    let derivedDataBuildRoot = derivedDataRoot.appendingPathComponent("Build", isDirectory: true)
+    try fileManager.createDirectory(at: derivedDataBuildRoot, withIntermediateDirectories: true)
+
+    let buildServerJSON = """
+    {
+      "name": "xcode build server",
+      "version": "0.2",
+      "bspVersion": "2.0",
+      "languages": ["swift"],
+      "argv": ["/usr/local/bin/xcode-build-server"],
+      "workspace": "\(workspaceRoot.path)/Example.xcodeproj/project.xcworkspace",
+      "build_root": "\(derivedDataBuildRoot.path)",
+      "scheme": "Example",
+      "kind": "xcode"
+    }
+    """
+    try buildServerJSON.write(
+      to: workspaceRoot.appendingPathComponent("buildServer.json"),
+      atomically: true,
+      encoding: .utf8,
+    )
+
+    let checkoutDirectory = derivedDataRoot
+      .appendingPathComponent("SourcePackages/checkouts/RemoteDependency", isDirectory: true)
+    try fileManager.createDirectory(at: checkoutDirectory, withIntermediateDirectories: true)
+
+    let workspace = Workspace(rootPath: workspaceRoot.path, kind: .xcodeProject)
+    let packages = try PackageCheckoutLocator.checkedOutPackages(in: workspace)
+
+    #expect(packages.count == 1)
+    #expect(packages[0].packageName == "RemoteDependency")
+    #expect(packages[0].checkoutPath.hasSuffix("/SourcePackages/checkouts/RemoteDependency"))
+  }
+
   @Test func xcodeWorkspaceWithoutBuildServerThrowsHelpfulError() throws {
     let fileManager = FileManager.default
     let temporaryDirectory = fileManager.temporaryDirectory

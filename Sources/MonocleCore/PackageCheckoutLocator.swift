@@ -57,13 +57,12 @@ public enum PackageCheckoutLocator {
     case .swiftPackage:
       return URL(fileURLWithPath: workspace.rootPath).appendingPathComponent(".build/checkouts", isDirectory: true)
     case .xcodeProject, .xcodeWorkspace:
-      let derivedDataRootPath = try derivedDataRootPath(fromWorkspaceRootPath: workspace.rootPath)
-      return URL(fileURLWithPath: derivedDataRootPath)
-        .appendingPathComponent("SourcePackages/checkouts", isDirectory: true)
+      let buildRootPath = try buildRootPath(fromWorkspaceRootPath: workspace.rootPath)
+      return try xcodeCheckoutsRootURL(fromBuildRootPath: buildRootPath)
     }
   }
 
-  private static func derivedDataRootPath(fromWorkspaceRootPath workspaceRootPath: String) throws -> String {
+  private static func buildRootPath(fromWorkspaceRootPath workspaceRootPath: String) throws -> String {
     let buildServerURL = URL(fileURLWithPath: workspaceRootPath).appendingPathComponent("buildServer.json")
     guard FileManager.default.fileExists(atPath: buildServerURL.path) else {
       throw MonocleError.buildServerConfigurationMissing(workspaceRootPath: workspaceRootPath)
@@ -90,6 +89,59 @@ public enum PackageCheckoutLocator {
     }
 
     return FilePathResolver.absolutePath(for: buildRootPath)
+  }
+
+  private static func xcodeCheckoutsRootURL(fromBuildRootPath buildRootPath: String) throws -> URL {
+    let fileManager = FileManager.default
+    let buildRootURL = URL(fileURLWithPath: buildRootPath, isDirectory: true)
+
+    let candidateBaseURLs: [URL] = {
+      var bases: [URL] = []
+      if buildRootURL.lastPathComponent == "Build" {
+        bases.append(buildRootURL.deletingLastPathComponent())
+      }
+      bases.append(buildRootURL)
+      return bases
+    }()
+
+    var candidateCheckoutsURLs: [URL] = []
+    for baseURL in candidateBaseURLs {
+      for parentDepth in 0...3 {
+        var currentBaseURL = baseURL
+        if parentDepth > 0 {
+          for _ in 0..<parentDepth {
+            let parent = currentBaseURL.deletingLastPathComponent()
+            if parent.path == currentBaseURL.path {
+              break
+            }
+            currentBaseURL = parent
+          }
+        }
+
+        candidateCheckoutsURLs.append(
+          currentBaseURL.appendingPathComponent("SourcePackages/checkouts", isDirectory: true),
+        )
+      }
+    }
+
+    for candidateURL in candidateCheckoutsURLs {
+      var isDirectory: ObjCBool = false
+      if fileManager.fileExists(atPath: candidateURL.path, isDirectory: &isDirectory), isDirectory.boolValue {
+        return candidateURL
+      }
+    }
+
+    let triedPaths = candidateCheckoutsURLs.map(\.path).joined(separator: "\n- ")
+    throw MonocleError.ioError(
+      """
+      Unable to locate Xcode SwiftPM checkouts directory.
+
+      build_root: \(buildRootPath)
+
+      Tried:
+      - \(triedPaths)
+      """,
+    )
   }
 
   private static func listChildDirectories(at directoryURL: URL) -> [URL] {
