@@ -1,5 +1,6 @@
 // By Dennis Müller
 
+import Darwin
 import Foundation
 import MonocleCore
 
@@ -95,6 +96,7 @@ enum AutomaticDaemonLauncher {
   private static let daemonEnrichedSymbolSearchBaseTimeoutSeconds: TimeInterval = 45
   private static let daemonEnrichedSymbolSearchPerResultTimeoutSeconds: TimeInterval = 3
   private static let daemonEnrichedSymbolSearchMaximumTimeoutSeconds: TimeInterval = 180
+  private static let daemonForceRestartWaitSeconds: TimeInterval = 2
 
   /// Sends the request to the daemon, launching it first if needed.
   ///
@@ -193,8 +195,18 @@ enum AutomaticDaemonLauncher {
   ///   - socketURL: Filesystem URL of the daemon socket.
   /// - Returns: `true` when the daemon is reachable within the timeout.
   private static func ensureDaemonIsReady(using client: DaemonClient, socketURL: URL) async -> Bool {
-    if await daemonResponds(using: client) {
+    let reachability = await daemonReachability(using: client, socketURL: socketURL)
+    switch reachability {
+    case .reachable:
       return true
+    case .noSocketFile:
+      break
+    case .staleSocketFile:
+      try? FileManager.default.removeItem(at: socketURL)
+    case .unresponsiveDaemon:
+      await forceStopUnresponsiveDaemon(socketURL: socketURL)
+    case .unknown:
+      break
     }
 
     do {
@@ -217,6 +229,97 @@ enum AutomaticDaemonLauncher {
     } catch {
       return false
     }
+  }
+
+  private enum DaemonReachability {
+    case reachable
+    case noSocketFile
+    case staleSocketFile
+    case unresponsiveDaemon
+    case unknown
+  }
+
+  private static func daemonReachability(using client: DaemonClient, socketURL: URL) async -> DaemonReachability {
+    guard FileManager.default.fileExists(atPath: socketURL.path) else {
+      return .noSocketFile
+    }
+
+    do {
+      _ = try await client.send(method: .ping, parameters: placeholderParameters())
+      return .reachable
+    } catch let error as POSIXError where error.code == .ECONNREFUSED {
+      return .staleSocketFile
+    } catch let error as POSIXError where error.code == .ENOENT {
+      return .staleSocketFile
+    } catch let error as POSIXError where error.code == .ETIMEDOUT {
+      return .unresponsiveDaemon
+    } catch {
+      let description = error.localizedDescription.lowercased()
+      if description.contains("timed out") {
+        return .unresponsiveDaemon
+      }
+
+      if let pid = readDaemonProcessIdentifier(), isProcessAlive(pid: pid) == false {
+        return .staleSocketFile
+      }
+
+      return .unknown
+    }
+  }
+
+  private static func forceStopUnresponsiveDaemon(socketURL: URL) async {
+    if let pid = readDaemonProcessIdentifier() {
+      _ = kill(pid, SIGTERM)
+      if waitForProcessExit(pid: pid, timeoutSeconds: daemonForceRestartWaitSeconds) == false {
+        _ = kill(pid, SIGKILL)
+        _ = waitForProcessExit(pid: pid, timeoutSeconds: 1)
+      }
+    }
+
+    let pidFileURL = DaemonRuntimeConfiguration.pidFileURL
+    if FileManager.default.fileExists(atPath: pidFileURL.path) {
+      try? FileManager.default.removeItem(at: pidFileURL)
+    }
+    if FileManager.default.fileExists(atPath: socketURL.path) {
+      try? FileManager.default.removeItem(at: socketURL)
+    }
+  }
+
+  private static func readDaemonProcessIdentifier() -> Int32? {
+    let pidFileURL = DaemonRuntimeConfiguration.pidFileURL
+    guard let pidString = try? String(contentsOf: pidFileURL).trimmingCharacters(in: .whitespacesAndNewlines),
+          let pid = Int32(pidString), pid > 1
+    else {
+      return nil
+    }
+
+    return pid
+  }
+
+  private static func isProcessAlive(pid: Int32) -> Bool {
+    if kill(pid, 0) == 0 {
+      return true
+    }
+
+    let errorCode = POSIXErrorCode(rawValue: errno) ?? .EIO
+    return errorCode != .ESRCH
+  }
+
+  private static func waitForProcessExit(pid: Int32, timeoutSeconds: TimeInterval) -> Bool {
+    let deadline = Date().addingTimeInterval(timeoutSeconds)
+
+    while Date() < deadline {
+      if kill(pid, 0) != 0 {
+        let errorCode = POSIXErrorCode(rawValue: errno) ?? .EIO
+        if errorCode == .ESRCH {
+          return true
+        }
+      }
+
+      usleep(50000)
+    }
+
+    return false
   }
 
   /// Waits for the daemon to begin responding, polling until the timeout expires.
@@ -265,6 +368,13 @@ enum AutomaticDaemonLauncher {
     process.standardInput = FileHandle.nullDevice
 
     try process.run()
+
+    let pidFileURL = DaemonRuntimeConfiguration.pidFileURL
+    try? FileManager.default.createDirectory(
+      at: pidFileURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true,
+    )
+    try? String(process.processIdentifier).write(to: pidFileURL, atomically: true, encoding: .utf8)
   }
 
   /// Determines the executable URL for launching the current monocle binary.

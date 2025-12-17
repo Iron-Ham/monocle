@@ -8,22 +8,37 @@ import ProcessEnv
 
 /// Launches and manages a single SourceKit-LSP process and JSON-RPC channel.
 public actor SourceKitService {
+  /// Tracks the currently running SourceKit-LSP connection, if any.
   private var server: InitializingServer?
   private var process: Process?
+  private var serverGeneration: Int = 0
 
   /// Creates a service ready to lazily start SourceKit-LSP.
   public init() {}
+
+  /// Wraps the current initialized server together with a generation counter that changes when the
+  /// underlying SourceKit-LSP process is restarted.
+  public struct ServerHandle: Sendable {
+    public var server: InitializingServer
+    public var generation: Int
+
+    public init(server: InitializingServer, generation: Int) {
+      self.server = server
+      self.generation = generation
+    }
+  }
 
   /// Starts SourceKit-LSP if needed and returns the initialized server connection.
   /// - Parameters:
   ///   - workspace: Workspace root used for LSP initialization.
   ///   - toolchain: Optional toolchain override (developer directory or sourcekit-lsp path).
   /// - Returns: An initialized `InitializingServer` ready for requests.
-  public func start(workspace: Workspace, toolchain: ToolchainConfiguration?) async throws -> InitializingServer {
+  public func start(workspace: Workspace, toolchain: ToolchainConfiguration?) async throws -> ServerHandle {
     if let existingServer = server {
-      return existingServer
+      return ServerHandle(server: existingServer, generation: serverGeneration)
     }
 
+    serverGeneration += 1
     let parameters = try makeExecutionParameters(workspace: workspace, toolchain: toolchain)
     let channelWithProcess: (channel: DataChannel, process: Process) = try DataChannel
       .localProcessChannel(parameters: parameters) { [weak self] in
@@ -52,11 +67,11 @@ public actor SourceKitService {
 
     let initializingServer = InitializingServer(server: connection, initializeParamsProvider: initializeProvider)
     server = initializingServer
-    return initializingServer
+    return ServerHandle(server: initializingServer, generation: serverGeneration)
   }
 
   /// Sends shutdown and exit to the server and cleans up the child process.
-  public func shutdown() async {
+  public func shutdown(timeoutSeconds: TimeInterval = 2) async {
     defer {
       server = nil
       process = nil
@@ -65,16 +80,53 @@ public actor SourceKitService {
     guard let activeServer = server else { return }
 
     do {
-      try await activeServer.shutdownAndExit()
+      try await performWithTimeout(seconds: timeoutSeconds) {
+        try await activeServer.shutdownAndExit()
+      }
     } catch {
       process?.terminate()
     }
+  }
+
+  /// Force-terminates the SourceKit-LSP child process (if present) and discards the current connection.
+  public func forceTerminate() {
+    process?.terminate()
+    server = nil
+    process = nil
+  }
+
+  /// Returns the current server generation counter.
+  public func currentServerGeneration() -> Int {
+    serverGeneration
   }
 
   /// Cleans up state when the child SourceKit-LSP process terminates unexpectedly.
   private func handleTermination() async {
     server = nil
     process = nil
+  }
+
+  private func performWithTimeout(
+    seconds: TimeInterval,
+    operation: @escaping @Sendable () async throws -> Void,
+  ) async throws {
+    guard seconds > 0 else {
+      try await operation()
+      return
+    }
+
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      group.addTask {
+        try await operation()
+      }
+      group.addTask {
+        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        throw MonocleError.ioError("Operation timed out after \(seconds)s.")
+      }
+
+      _ = try await group.next()
+      group.cancelAll()
+    }
   }
 
   /// Client capabilities advertised to SourceKit-LSP.

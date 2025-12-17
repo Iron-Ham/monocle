@@ -205,6 +205,8 @@ public struct DaemonStatus: Codable, Sendable {
   public var activeSessions: [Session]
   /// Path to the Unix socket where the daemon listens.
   public var socketPath: String
+  /// Process identifier of the running daemon.
+  public var daemonProcessIdentifier: Int
   /// Idle timeout, in seconds, after which sessions are reaped.
   public var idleSessionTimeoutSeconds: Int
   /// Path to the daemon log file.
@@ -215,11 +217,14 @@ public struct DaemonStatus: Codable, Sendable {
   /// - Parameters:
   ///   - activeSessions: Active LSP sessions tracked by the daemon.
   ///   - socketPath: Filesystem path of the daemon's Unix socket.
+  ///   - daemonProcessIdentifier: Process identifier of the daemon.
   ///   - idleSessionTimeoutSeconds: Idle timeout threshold in seconds.
   ///   - logFilePath: Path of the daemon log file.
-  public init(activeSessions: [Session], socketPath: String, idleSessionTimeoutSeconds: Int, logFilePath: String) {
+  public init(activeSessions: [Session], socketPath: String, daemonProcessIdentifier: Int,
+              idleSessionTimeoutSeconds: Int, logFilePath: String) {
     self.activeSessions = activeSessions
     self.socketPath = socketPath
+    self.daemonProcessIdentifier = daemonProcessIdentifier
     self.idleSessionTimeoutSeconds = idleSessionTimeoutSeconds
     self.logFilePath = logFilePath
   }
@@ -253,6 +258,16 @@ public enum DaemonRuntimeConfiguration {
   /// Default path for the daemon log file.
   public static var logFileURL: URL {
     logDirectoryURL.appendingPathComponent("daemon.log")
+  }
+
+  /// Default path for the daemon pid file.
+  public static var pidFileURL: URL {
+    logDirectoryURL.appendingPathComponent("daemon.pid")
+  }
+
+  /// Default path for the daemon lock file.
+  public static var lockFileURL: URL {
+    logDirectoryURL.appendingPathComponent("daemon.lock")
   }
 }
 

@@ -12,6 +12,7 @@ public final class DaemonServer: @unchecked Sendable {
   private let idleSessionTimeout: TimeInterval
   private let sessionManager: DaemonSessionManager
   private var serverDescriptor: Int32 = -1
+  private var lockFileDescriptor: Int32 = -1
   private var acceptTask: Task<Void, Never>?
   private var reapTask: Task<Void, Never>?
   private var shutdownContinuation: CheckedContinuation<Void, Never>?
@@ -35,8 +36,18 @@ public final class DaemonServer: @unchecked Sendable {
 
   /// Starts the server and suspends until a shutdown request is received or stop() is called.
   public func run() async throws {
-    try prepareSocketPath()
-    serverDescriptor = try UnixDomainSocket.openListener(at: socketURL.path)
+    try acquireProcessLock()
+
+    do {
+      try prepareSocketPath()
+      serverDescriptor = try UnixDomainSocket.openListener(at: socketURL.path)
+      try writePidFile()
+    } catch {
+      releaseProcessLock()
+      removeSocketFile()
+      removePidFile()
+      throw error
+    }
 
     acceptTask = Task.detached { [weak self] in
       guard let self else { return }
@@ -75,9 +86,63 @@ public final class DaemonServer: @unchecked Sendable {
     shutdownContinuation?.resume()
     shutdownContinuation = nil
     removeSocketFile()
+    removePidFile()
+    releaseProcessLock()
   }
 
   // MARK: - Private helpers
+
+  private func acquireProcessLock() throws {
+    let lockFileURL = DaemonRuntimeConfiguration.lockFileURL
+    try? FileManager.default.createDirectory(
+      at: lockFileURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true,
+    )
+
+    lockFileDescriptor = Darwin.open(lockFileURL.path, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR)
+    guard lockFileDescriptor >= 0 else {
+      throw POSIXError(POSIXErrorCode(rawValue: errno) ?? .EIO)
+    }
+
+    let lockResult = flock(lockFileDescriptor, LOCK_EX | LOCK_NB)
+    guard lockResult == 0 else {
+      let errorCode = POSIXErrorCode(rawValue: errno) ?? .EIO
+      close(lockFileDescriptor)
+      lockFileDescriptor = -1
+
+      if errorCode == .EWOULDBLOCK {
+        throw MonocleError.ioError("Another monocle daemon instance appears to be running.")
+      }
+
+      throw POSIXError(errorCode)
+    }
+  }
+
+  private func releaseProcessLock() {
+    guard lockFileDescriptor >= 0 else { return }
+
+    _ = flock(lockFileDescriptor, LOCK_UN)
+    close(lockFileDescriptor)
+    lockFileDescriptor = -1
+  }
+
+  private func writePidFile() throws {
+    let pidFileURL = DaemonRuntimeConfiguration.pidFileURL
+    try? FileManager.default.createDirectory(
+      at: pidFileURL.deletingLastPathComponent(),
+      withIntermediateDirectories: true,
+    )
+
+    let processIdentifier = ProcessInfo.processInfo.processIdentifier
+    try String(processIdentifier).write(to: pidFileURL, atomically: true, encoding: .utf8)
+  }
+
+  private func removePidFile() {
+    let pidFileURL = DaemonRuntimeConfiguration.pidFileURL
+    if FileManager.default.fileExists(atPath: pidFileURL.path) {
+      try? FileManager.default.removeItem(at: pidFileURL)
+    }
+  }
 
   /// Accepts incoming socket connections and hands them to `handleClient`.
   private func acceptLoop() async {
@@ -136,7 +201,13 @@ public final class DaemonServer: @unchecked Sendable {
     let directoryURL = socketURL.deletingLastPathComponent()
     try FileManager.default.createDirectory(at: directoryURL, withIntermediateDirectories: true)
     if FileManager.default.fileExists(atPath: socketURL.path) {
-      try FileManager.default.removeItem(at: socketURL)
+      do {
+        let descriptor = try UnixDomainSocket.connect(path: socketURL.path)
+        close(descriptor)
+        throw MonocleError.ioError("A daemon is already listening on \(socketURL.path).")
+      } catch let error as POSIXError where error.code == .ECONNREFUSED || error.code == .ENOENT {
+        try FileManager.default.removeItem(at: socketURL)
+      }
     }
   }
 

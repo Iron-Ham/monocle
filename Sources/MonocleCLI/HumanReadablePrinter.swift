@@ -41,6 +41,7 @@ enum HumanReadablePrinter {
   /// - Parameter status: Daemon status payload returned by the server.
   static func printDaemonStatus(_ status: DaemonStatus) {
     print("Daemon socket: \(status.socketPath)")
+    print("Daemon PID: \(status.daemonProcessIdentifier)")
     print("Idle session timeout: \(status.idleSessionTimeoutSeconds)s")
     print("Logs: \(status.logFilePath)")
     if status.activeSessions.isEmpty {

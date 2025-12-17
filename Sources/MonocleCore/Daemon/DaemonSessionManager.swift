@@ -105,6 +105,7 @@ public actor DaemonSessionManager {
     return DaemonStatus(
       activeSessions: sessionsInfo,
       socketPath: socketPath,
+      daemonProcessIdentifier: Int(ProcessInfo.processInfo.processIdentifier),
       idleSessionTimeoutSeconds: Int(idleSessionTimeout),
       logFilePath: DaemonRuntimeConfiguration.logFileURL.path,
     )

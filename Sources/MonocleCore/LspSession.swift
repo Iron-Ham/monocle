@@ -9,8 +9,8 @@ public actor LspSession {
   private let workspace: Workspace
   private let toolchain: ToolchainConfiguration?
   private let sourceKitService: SourceKitService
-  private var server: InitializingServer?
   private var openedDocuments: Set<String> = []
+  private var serverGeneration: Int = 0
 
   /// Creates a session bound to a workspace with an optional toolchain override.
   ///
@@ -25,9 +25,8 @@ public actor LspSession {
 
   /// Provides a combined definition and hover view for a symbol.
   public func inspectSymbol(file: String, line: Int, column: Int) async throws -> SymbolInfo {
-    let connection = try await ensureSessionReady()
-    let definitionInfo = try await fetchDefinition(connection: connection, file: file, line: line, column: column)
-    let hoverInfo = try await fetchHover(connection: connection, file: file, line: line, column: column)
+    let definitionInfo = try await fetchDefinition(file: file, line: line, column: column)
+    let hoverInfo = try await fetchHover(file: file, line: line, column: column)
 
     return SymbolInfo(
       symbol: hoverInfo.symbol ?? definitionInfo.symbol,
@@ -41,14 +40,12 @@ public actor LspSession {
 
   /// Returns definition-only information for a symbol.
   public func definition(file: String, line: Int, column: Int) async throws -> SymbolInfo {
-    let connection = try await ensureSessionReady()
-    return try await fetchDefinition(connection: connection, file: file, line: line, column: column)
+    try await fetchDefinition(file: file, line: line, column: column)
   }
 
   /// Returns hover-only information for a symbol.
   public func hover(file: String, line: Int, column: Int) async throws -> SymbolInfo {
-    let connection = try await ensureSessionReady()
-    return try await fetchHover(connection: connection, file: file, line: line, column: column)
+    try await fetchHover(file: file, line: line, column: column)
   }
 
   /// Searches workspace symbols matching the provided query string.
@@ -62,24 +59,21 @@ public actor LspSession {
     -> [SymbolSearchResult] {
     guard limit > 0 else { return [] }
 
-    let connection = try await ensureSessionReady()
     let retryPolicy = makeRetryPolicy()
     let params = WorkspaceSymbolParams(query: query)
 
-    guard let response = try await performWithRetries(
+    let response = try await workspaceSymbolResponse(
+      params: params,
       maxAttempts: retryPolicy.maxAttempts,
       delayNanoseconds: retryPolicy.delayNanoseconds,
-      { try await connection.workspaceSymbol(params) },
-    ) else {
-      return []
-    }
+    )
 
     let mapped = mapWorkspaceSymbolResponse(response).prefix(limit).map(\.self)
     guard enrich else { return Array(mapped) }
 
     var enrichedResults: [SymbolSearchResult] = []
     for result in mapped {
-      if let enriched = try await enrichResult(result, connection: connection) {
+      if let enriched = try await enrichResult(result) {
         enrichedResults.append(enriched)
       } else {
         enrichedResults.append(result)
@@ -91,7 +85,8 @@ public actor LspSession {
   /// Gracefully stops the LSP session.
   public func shutdown() async {
     await sourceKitService.shutdown()
-    server = nil
+    openedDocuments.removeAll()
+    serverGeneration = 0
   }
 
   // MARK: - Private helpers
@@ -100,33 +95,32 @@ public actor LspSession {
   ///
   /// - Returns: An initialized server connection ready for requests.
   private func ensureSessionReady() async throws -> InitializingServer {
-    if let existing = server {
-      return existing
+    let handle = try await sourceKitService.start(workspace: workspace, toolchain: toolchain)
+    if handle.generation != serverGeneration {
+      openedDocuments.removeAll()
+      serverGeneration = handle.generation
     }
-    let initialized = try await sourceKitService.start(workspace: workspace, toolchain: toolchain)
-    server = initialized
-    return initialized
+    return handle.server
   }
 
   /// Looks up definition information for the provided location.
   ///
   /// - Parameters:
-  ///   - connection: Active SourceKit-LSP server connection.
   ///   - file: Absolute path to the Swift source file.
   ///   - line: One-based line number where the symbol resides.
   ///   - column: One-based column number within the line.
   /// - Returns: Symbol metadata describing the resolved definition.
   /// - Throws: `MonocleError.symbolNotFound` when no definition is returned.
-  private func fetchDefinition(connection: InitializingServer, file: String, line: Int,
-                               column: Int) async throws -> SymbolInfo {
+  private func fetchDefinition(file: String, line: Int, column: Int) async throws -> SymbolInfo {
     let textDocumentParams = try makeTextDocumentPosition(file: file, line: line, column: column)
-    try await openIfNeeded(connection: connection, file: file)
     let retryPolicy = makeRetryPolicy()
-    guard let response = try await performWithRetries(
+    guard let response = try await performLspRequestWithRetries(
       maxAttempts: retryPolicy.maxAttempts,
       delayNanoseconds: retryPolicy.delayNanoseconds,
-      {
-        try await connection.definition(textDocumentParams)
+      requestTimeoutSeconds: 15,
+      { connection in
+        try await self.openIfNeeded(connection: connection, file: file)
+        return try await connection.definition(textDocumentParams)
       },
     ) else {
       throw MonocleError.symbolNotFound
@@ -146,22 +140,21 @@ public actor LspSession {
   /// Retrieves hover content for the provided location.
   ///
   /// - Parameters:
-  ///   - connection: Active SourceKit-LSP server connection.
   ///   - file: Absolute path to the Swift source file.
   ///   - line: One-based line number where the symbol resides.
   ///   - column: One-based column number within the line.
   /// - Returns: Symbol metadata derived from hover information.
   /// - Throws: `MonocleError.symbolNotFound` when hover data is unavailable.
-  private func fetchHover(connection: InitializingServer, file: String, line: Int,
-                          column: Int) async throws -> SymbolInfo {
+  private func fetchHover(file: String, line: Int, column: Int) async throws -> SymbolInfo {
     let textDocumentParams = try makeTextDocumentPosition(file: file, line: line, column: column)
-    try await openIfNeeded(connection: connection, file: file)
     let retryPolicy = makeRetryPolicy()
-    guard let hoverResponse = try await performWithRetries(
+    guard let hoverResponse = try await performLspRequestWithRetries(
       maxAttempts: retryPolicy.maxAttempts,
       delayNanoseconds: retryPolicy.delayNanoseconds,
-      {
-        try await connection.hover(textDocumentParams)
+      requestTimeoutSeconds: 15,
+      { connection in
+        try await self.openIfNeeded(connection: connection, file: file)
+        return try await connection.hover(textDocumentParams)
       },
     ) else {
       throw MonocleError.symbolNotFound
@@ -206,7 +199,9 @@ public actor LspSession {
     if openedDocuments.contains(uri) { return }
     let text = try String(contentsOfFile: file)
     let item = TextDocumentItem(uri: uri, languageId: "swift", version: 1, text: text)
-    try await connection.textDocumentDidOpen(DidOpenTextDocumentParams(textDocument: item))
+    try await performWithTimeout(seconds: 5) {
+      try await connection.textDocumentDidOpen(DidOpenTextDocumentParams(textDocument: item))
+    }
     openedDocuments.insert(uri)
   }
 
@@ -318,26 +313,126 @@ public actor LspSession {
     )
   }
 
-  /// Repeatedly executes an async operation until it produces a value or attempts are exhausted.
-  ///
-  /// - Parameters:
-  ///   - maxAttempts: Maximum number of attempts to make.
-  ///   - delayNanoseconds: Delay inserted between attempts.
-  ///   - operation: Async operation that returns an optional value.
-  /// - Returns: The first non-`nil` result or `nil` when attempts are exhausted.
-  private func performWithRetries<T>(
+  private struct TimeoutError: Error, LocalizedError {
+    var seconds: TimeInterval
+
+    var errorDescription: String? {
+      "Timed out after \(seconds)s."
+    }
+  }
+
+  private func performWithTimeout<T: Sendable>(
+    seconds: TimeInterval,
+    operation: @escaping @Sendable () async throws -> T,
+  ) async throws -> T {
+    guard seconds > 0 else {
+      return try await operation()
+    }
+
+    return try await withThrowingTaskGroup(of: T.self) { group in
+      group.addTask {
+        try await operation()
+      }
+      group.addTask {
+        try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+        throw TimeoutError(seconds: seconds)
+      }
+
+      let result = try await group.next()
+      group.cancelAll()
+      guard let result else {
+        throw TimeoutError(seconds: seconds)
+      }
+
+      return result
+    }
+  }
+
+  private func shouldRestartSourceKit(after error: Error) -> Bool {
+    if error is CancellationError { return false }
+
+    let localized = error.localizedDescription.lowercased()
+    let description = String(describing: error).lowercased()
+    let combined = localized + " " + description
+
+    if combined.contains("datastreamclosed") { return true }
+    if combined.contains("connection reset") { return true }
+    if combined.contains("broken pipe") { return true }
+    if combined.contains("service is invalid") { return true }
+    if combined.contains("sourcekitd fatal error") { return true }
+
+    if combined.contains("timed out") { return true }
+
+    return false
+  }
+
+  private func workspaceSymbolResponse(
+    params: WorkspaceSymbolParams,
     maxAttempts: Int,
     delayNanoseconds: UInt64,
-    _ operation: @escaping () async throws -> T?,
+  ) async throws -> WorkspaceSymbolResponse {
+    var attempt = 0
+
+    while attempt < maxAttempts {
+      let response = try await performLspRequestWithRetries(
+        maxAttempts: 1,
+        delayNanoseconds: 0,
+        requestTimeoutSeconds: 30,
+        { connection in try await connection.workspaceSymbol(params) },
+      )
+
+      if let response {
+        let mappedCount = mapWorkspaceSymbolResponse(response).count
+        if mappedCount > 0 {
+          return response
+        }
+      }
+
+      attempt += 1
+      if attempt < maxAttempts {
+        try await Task.sleep(nanoseconds: delayNanoseconds)
+      }
+    }
+
+    return nil
+  }
+
+  /// Executes an LSP operation with retry and process-restart recovery.
+  ///
+  /// Some SourceKit-LSP failures are transient (e.g. indexing/build settings not ready yet) and yield `nil` responses.
+  /// Others indicate a broken transport or crashed SourceKit service; those require restarting the process.
+  private func performLspRequestWithRetries<T: Sendable>(
+    maxAttempts: Int,
+    delayNanoseconds: UInt64,
+    requestTimeoutSeconds: TimeInterval,
+    _ operation: @escaping @Sendable (InitializingServer) async throws -> T?,
   ) async throws -> T? {
     var attempt = 0
+    var hasRestarted = false
+
     while attempt < maxAttempts {
-      if let result = try await operation() {
-        return result
+      do {
+        let connection = try await ensureSessionReady()
+        let result = try await performWithTimeout(seconds: requestTimeoutSeconds) {
+          try await operation(connection)
+        }
+        if let result {
+          return result
+        }
+      } catch {
+        if shouldRestartSourceKit(after: error), hasRestarted == false {
+          hasRestarted = true
+          await sourceKitService.forceTerminate()
+          attempt += 1
+          continue
+        }
+        throw error
       }
+
       attempt += 1
       try await Task.sleep(nanoseconds: delayNanoseconds) // allow build settings to arrive from build server
     }
+
     return nil
   }
 
@@ -451,18 +546,16 @@ public actor LspSession {
   ///
   /// - Parameters:
   ///   - result: The base search result to enrich.
-  ///   - connection: Active SourceKit-LSP connection.
   /// - Returns: An enriched result or `nil` when enrichment is not possible.
-  private func enrichResult(_ result: SymbolSearchResult, connection: InitializingServer) async throws
-    -> SymbolSearchResult? {
+  private func enrichResult(_ result: SymbolSearchResult) async throws -> SymbolSearchResult? {
     guard let location = result.location, location.uri.isFileURL else { return nil }
 
     let line = location.startLine
     let column = max(location.startCharacter, 1)
     let filePath = location.uri.path
 
-    let definitionInfo = try? await fetchDefinition(connection: connection, file: filePath, line: line, column: column)
-    let hoverInfo = try? await fetchHover(connection: connection, file: filePath, line: line, column: column)
+    let definitionInfo = try? await fetchDefinition(file: filePath, line: line, column: column)
+    let hoverInfo = try? await fetchHover(file: filePath, line: line, column: column)
 
     let mergedLocation = definitionInfo?.definition ?? result.location
     let signature = hoverInfo?.signature ?? definitionInfo?.signature ?? result.signature

@@ -18,7 +18,6 @@ struct DaemonRequestHandler {
   func handle(_ request: DaemonRequest) async -> DaemonResponse {
     switch request.method {
     case .shutdown:
-      await sessionManager.shutdownAll()
       return DaemonResponse(id: request.id, result: SymbolInfo())
     case .ping:
       return DaemonResponse(id: request.id, result: SymbolInfo())

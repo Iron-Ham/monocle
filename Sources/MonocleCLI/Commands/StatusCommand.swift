@@ -30,9 +30,17 @@ struct StatusCommand: AsyncParsableCommand {
     do {
       response = try await client.send(method: .status, parameters: parameters)
     } catch {
-      print(
-        "No daemon is running. Start it with `monocle serve` or run any command (inspect/definition/hover) to auto-start it.",
-      )
+      let socketExists = FileManager.default.fileExists(atPath: socketURL.path)
+      let localized = error.localizedDescription.lowercased()
+      if socketExists, localized.contains("timed out") {
+        print("Daemon socket exists but daemon is unresponsive at \(socketURL.path). Try `monocle stop --force`.")
+      } else if socketExists {
+        print("Daemon socket exists at \(socketURL.path) but no daemon responded. Try `monocle stop --force`.")
+      } else {
+        print(
+          "No daemon is running. Start it with `monocle serve` or run any command (inspect/definition/hover) to auto-start it.",
+        )
+      }
       return
     }
     guard let status = response.status else {
