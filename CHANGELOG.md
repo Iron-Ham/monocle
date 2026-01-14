@@ -1,3 +1,9 @@
+## [1.5.0]
+
+### Added
+- **Symbol search ranking + source labels**: `monocle symbol` now prioritizes exact matches, labels results as project/package, and reduces noise from mangled/test-only symbols.
+- **Symbol search filters and context**: New flags `--exact`, `--scope`, `--prefer`, and `--context-lines` add exact matching, source filtering, ranking preference, and multi-line snippets.
+
 ## [1.4.0]
 
 ### Added
@@ -40,11 +46,3 @@
 ## [1.1.0]
 ### Added
 - **Workspace symbol search command**: Added `monocle symbol` to query workspace symbols with a configurable limit and optional enriched output via the CLI and daemon.
-
-### Enhanced
-### Fixed
-## [Unreleased]
-
-### Added
-- **Symbol search ranking + source labels**: `monocle symbol` now prioritizes exact matches, labels results as project/package, and reduces noise from mangled/test-only symbols.
-- **Symbol search filters and context**: New flags `--exact`, `--scope`, `--prefer`, and `--context-lines` add exact matching, source filtering, ranking preference, and multi-line snippets.
